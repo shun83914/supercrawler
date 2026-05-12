@@ -19,7 +19,7 @@ mkdir -p ~/supercrawler/data && \
 docker run -d --name supercrawler -p 5510:5510 \
   -v ~/supercrawler/data:/data \
   -e CLOAK_HEADLESS=false \
-  ghcr.io/<用户名>/supercrawler:latest && \
+  ghcr.io/shun83914/supercrawler:latest && \
 echo "✅ 服务已启动，访问 http://localhost:5510"
 ```
 
@@ -74,7 +74,7 @@ docker restart supercrawler
 docker stop supercrawler
 
 # 更新到最新版
-docker pull ghcr.io/<用户名>/supercrawler:latest
+docker pull ghcr.io/shun83914/supercrawler:latest
 docker stop supercrawler && docker rm supercrawler
 # 重新执行第 2 步的 docker run 命令
 ```
@@ -107,4 +107,4 @@ curl -X POST http://localhost:5510/api/xhs/search \
 | 提示未登录 | 先执行第 3 步扫码 |
 | 数据没了 | 检查 `~/supercrawler/data` 目录是否存在 |
 
-详细文档：https://github.com/<用户名>/supercrawler
+详细文档：https://github.com/shun83914/supercrawler

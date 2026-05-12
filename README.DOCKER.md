@@ -21,15 +21,15 @@ docker run -d \
   -e API_TOKEN=$(openssl rand -hex 32) \
   -e CLOAK_HEADLESS=false \
   --restart unless-stopped \
-  ghcr.io/<你的用户名>/supercrawler:latest
+  ghcr.io/shun83914/supercrawler:latest
 
 # 查看日志
 docker logs -f supercrawler
 ```
 
 > **镜像地址选择：**
-> - Docker Hub: `<你的用户名>/supercrawler:latest`
-> - GitHub Container Registry: `ghcr.io/<你的用户名>/supercrawler:latest`
+> - Docker Hub: `youmepower/supercrawler:latest`
+> - GitHub Container Registry: `ghcr.io/shun83914/supercrawler:latest`
 
 ### 2. 生成并记录 Token
 
@@ -88,7 +88,7 @@ version: "3.9"
 
 services:
   supercrawler:
-    image: ghcr.io/<你的用户名>/supercrawler:latest
+    image: ghcr.io/shun83914/supercrawler:latest
     container_name: supercrawler
     restart: unless-stopped
     environment:
@@ -199,7 +199,7 @@ docker stop supercrawler
 ls -lh ~/supercrawler/data/output/
 
 # 更新镜像
-docker pull ghcr.io/<你的用户名>/supercrawler:latest
+docker pull ghcr.io/shun83914/supercrawler:latest
 docker stop supercrawler
 docker rm supercrawler
 # 重新执行第 1 步的 docker run 命令
@@ -221,5 +221,5 @@ docker rm supercrawler
 
 ## 镜像来源
 
-- **Docker Hub**: `https://hub.docker.com/r/<你的用户名>/supercrawler`
-- **GitHub Container Registry**: `https://github.com/<你的用户名>/supercrawler/pkgs/container/supercrawler`
+- **Docker Hub**: `https://hub.docker.com/r/youmepower/supercrawler`
+- **GitHub Container Registry**: `https://github.com/shun83914/supercrawler/pkgs/container/supercrawler`

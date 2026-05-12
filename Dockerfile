@@ -1,5 +1,5 @@
 # --- builder ---
-FROM node:20-bookworm-slim AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund
@@ -7,20 +7,22 @@ COPY . .
 RUN npm run build
 
 # --- runtime ---
-FROM node:20-bookworm-slim AS runtime
+FROM node:22-alpine AS runtime
 ENV NODE_ENV=production \
     LOG_LEVEL=info \
     PROFILE_DIR=/data/profiles \
     OUTPUT_DIR=/data/output \
     CLOAK_HEADLESS=true
 
-# CloakBrowser/Playwright 运行时所需的系统依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 \
-      libcups2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-      libgbm1 libdrm2 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
-      tini \
-    && rm -rf /var/lib/apt/lists/*
+# Alpine 系统依赖（Playwright 运行所需）
+RUN apk add --no-cache \
+      chromium \
+      nss \
+      freetype \
+      harfbuzz \
+      ca-certificates \
+      ttf-freefont \
+      tini
 
 WORKDIR /app
 COPY --from=builder /app/package*.json ./
