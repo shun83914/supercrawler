@@ -134,6 +134,8 @@ done
 
 **检查用户是否提供了 token：**
 ```bash
+# 统一使用 SUPERCRAWLER_TOKEN 变量名
+# 服务端（API_TOKEN）和 Skills 钩子都读取这个变量
 if [ -n "$SUPERCRAWLER_TOKEN" ]; then
   # 添加到 shell 配置
   if ! grep -q "SUPERCRAWLER_TOKEN" ~/.zshrc 2>/dev/null; then
@@ -148,9 +150,10 @@ if [ -n "$SUPERCRAWLER_TOKEN" ]; then
   
   # 立即生效
   export SUPERCRAWLER_TOKEN
-  echo "✅ 环境变量已设置"
+  echo "✅ 环境变量已设置（SUPERCRAWLER_TOKEN）"
 else
   echo "⚠️  未提供 SUPERCRAWLER_TOKEN，如果服务需要鉴权，请手动配置"
+  echo "   在 .env 中设置 SUPERCRAWLER_TOKEN=xxx"
 fi
 ```
 
