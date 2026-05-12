@@ -60,9 +60,62 @@ if ! $PUSH_TO_DOCKERHUB && ! $PUSH_TO_GHCR; then
   exit 1
 fi
 
-# ========== 构建镜像 ==========
-echo "🔨 构建镜像 supercrawler:latest..."
-docker build -t supercrawler:latest .
+# ========== 检查 buildx 是否可用 ==========
+if ! docker buildx version >/dev/null 2>&1; then
+  echo "❌ 需要安装 Docker Buildx 插件"
+  echo "   安装指南: https://docs.docker.com/build/install-buildx/"
+  exit 1
+fi
+
+# 创建或使用 multi-platform builder
+echo "🔧 初始化 Buildx builder..."
+# 如果 builder 不存在则创建，否则重用
+if ! docker buildx inspect supercrawler-builder >/dev/null 2>&1; then
+  docker buildx create --name supercrawler-builder --use
+  echo "   ✅ 创建新 builder: supercrawler-builder"
+else
+  docker buildx use supercrawler-builder
+  echo "   ✅ 使用已有 builder: supercrawler-builder"
+fi
+
+# 启动 builder（如果需要）
+docker buildx inspect --bootstrap supercrawler-builder >/dev/null 2>&1
+
+# ========== 构建多架构镜像 ==========
+echo "🔨 构建多架构镜像 (linux/amd64, linux/arm64)..."
+
+# 构建目标 tags
+BUILD_TAGS=()
+if $PUSH_TO_DOCKERHUB && [[ -n "$DOCKERHUB_USER" ]]; then
+  for tag in "${TAGS[@]}"; do
+    BUILD_TAGS+=("-t" "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}")
+  done
+fi
+
+if $PUSH_TO_GHCR && [[ -n "$GHCR_USER" ]]; then
+  for tag in "${TAGS[@]}"; do
+    BUILD_TAGS+=("-t" "ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}")
+  done
+fi
+
+# 构建命令
+if $DRY_RUN; then
+  echo "   [Dry run] 构建以下 tags:"
+  for tag in "${TAGS[@]}"; do
+    [[ -n "$DOCKERHUB_USER" ]] && echo "     - ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}"
+    [[ -n "$GHCR_USER" ]] && echo "     - ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}"
+  done
+  echo ""
+  echo "   执行命令:"
+  echo "   docker buildx build --platform linux/amd64,linux/arm64 ${BUILD_TAGS[*]} --push ."
+else
+  docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    "${BUILD_TAGS[@]}" \
+    --push \
+    --pull=never \
+    .
+fi
 
 if [[ $? -ne 0 ]]; then
   echo "❌ 构建失败"
@@ -70,30 +123,6 @@ if [[ $? -ne 0 ]]; then
 fi
 
 echo "✅ 构建成功"
-
-# ========== 推送 ==========
-for tag in "${TAGS[@]}"; do
-  echo ""
-  echo "📦 处理 tag: $tag"
-
-  if $PUSH_TO_DOCKERHUB; then
-    IMAGE="${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}"
-    echo "   → Docker Hub: $IMAGE"
-    docker tag supercrawler:latest "$IMAGE"
-    if ! $DRY_RUN; then
-      docker push "$IMAGE"
-    fi
-  fi
-
-  if $PUSH_TO_GHCR; then
-    IMAGE="ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}"
-    echo "   → GHCR: $IMAGE"
-    docker tag supercrawler:latest "$IMAGE"
-    if ! $DRY_RUN; then
-      docker push "$IMAGE"
-    fi
-  fi
-done
 
 echo ""
 if $DRY_RUN; then
