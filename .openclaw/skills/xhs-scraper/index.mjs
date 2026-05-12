@@ -5,7 +5,7 @@
  * OpenClaw 会在每次 tool_call 前后调用导出的 onBeforeInvoke / onAfterInvoke。
  */
 
-const HEALTH_URL = 'http://localhost:3000/api/health';
+const HEALTH_URL = `http://localhost:${process.env.PORT || 5510}/api/health`;
 const HEALTH_TIMEOUT_MS = 1500;
 
 export async function onBeforeInvoke({ toolName }) {
