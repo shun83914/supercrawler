@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openclaw.dev/schema/mcp.json",
+  "mcpServers": {
+    "supercrawler": {
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/mcp/mcp.stdio.js"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PROFILE_DIR": "${workspaceFolder}/data/profiles",
+        "OUTPUT_DIR": "${workspaceFolder}/data/output",
+        "CLOAK_HEADLESS": "true",
+        "CLOAK_TIMEZONE": "Asia/Shanghai",
+        "CLOAK_LOCALE": "zh-CN",
+        "XHS_SCRAPE_CONCURRENCY": "1",
+        "LOG_LEVEL": "warn"
+      }
+    }
+  }
+}

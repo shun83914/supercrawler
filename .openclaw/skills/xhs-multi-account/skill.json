@@ -1,0 +1,12 @@
+{
+  "name": "xhs-multi-account",
+  "version": "0.1.0",
+  "manifest": "SKILL.md",
+  "entry": "index.mjs",
+  "requires": ["supercrawler"],
+  "env": {
+    "SUPERCRAWLER_TOKEN": "${env:SUPERCRAWLER_TOKEN}",
+    "SUPERCRAWLER_PROFILE_DIR": "${workspaceFolder}/data/profiles",
+    "XHS_COOL_DOWN_MS": "600000"
+  }
+}

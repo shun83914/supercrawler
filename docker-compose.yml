@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  supercrawler:
+    build: .
+    image: supercrawler:latest
+    container_name: supercrawler
+    restart: unless-stopped
+    environment:
+      PORT: ${PORT:-5510}
+      API_TOKEN: ${API_TOKEN:-}
+      CLOAK_HEADLESS: "true"   # 容器内默认无头；扫码登录请在宿主机执行 npm run start
+      CLOAK_HUMANIZE: "true"
+      CLOAK_TIMEZONE: Asia/Shanghai
+      CLOAK_LOCALE: zh-CN
+      XHS_SCRAPE_CONCURRENCY: "1"
+      LOG_LEVEL: info
+    ports:
+      - "${PORT:-5510}:${PORT:-5510}"
+    volumes:
+      - ./data:/data
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:'+(process.env.PORT||'5510')+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
