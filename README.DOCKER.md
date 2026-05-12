@@ -150,6 +150,8 @@ docker compose logs -f
 
 ## OpenClaw 接入
 
+详细配置指南请查看：[OPENCLAW_SETUP.md](./OPENCLAW_SETUP.md)
+
 ### MCP 配置
 
 在 OpenClaw 配置中添加：
