@@ -1,4 +1,4 @@
-name: Publish Docker Image
+name: SH SuperCrawler Docker Image
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (如 v0.2.0)'
+        description: '版本号 (如 1.0.0)'
         required: true
         type: string
 
