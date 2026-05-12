@@ -60,6 +60,14 @@ if ! $PUSH_TO_DOCKERHUB && ! $PUSH_TO_GHCR; then
   exit 1
 fi
 
+# 网络提示
+if $PUSH_TO_DOCKERHUB; then
+  echo "⚠️  提示: Docker Hub 在国内访问可能不稳定"
+  echo "   如果构建失败，建议只推送到 GHCR:"
+  echo "   GHCR_USER=shun83914 ./scripts/publish-docker.sh"
+  echo ""
+fi
+
 # ========== 检查 buildx 是否可用 ==========
 if ! docker buildx version >/dev/null 2>&1; then
   echo "❌ 需要安装 Docker Buildx 插件"
@@ -113,7 +121,7 @@ else
     --platform linux/amd64,linux/arm64 \
     "${BUILD_TAGS[@]}" \
     --push \
-    --pull=never \
+    --pull=false \
     .
 fi
 
