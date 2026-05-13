@@ -15,18 +15,84 @@
 
 **执行命令：**
 ```bash
-docker ps --filter "name=supercrawler" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+# 检查容器是否运行
+if docker ps --filter "name=supercrawler" --format "{{.Names}}" | grep -q supercrawler; then
+  echo "✅ supercrawler 容器正在运行"
+  docker ps --filter "name=supercrawler" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+else
+  echo "⚠️  supercrawler 容器未运行，正在启动..."
+  
+  # 判断操作系统类型
+  OS_TYPE=$(uname -s)
+  
+  if [ "$OS_TYPE" = "Darwin" ]; then
+    # macOS 系统
+    echo "🍎 检测到 macOS 系统"
+    docker run -d --name supercrawler -p 5510:5510 \
+      -v ~/supercrawler/data:/data \
+      -e CLOAK_HEADLESS=false \
+      ghcr.io/shun83914/supercrawler:v1.0.2-arm64
+  elif [ "$OS_TYPE" = "Linux" ]; then
+    # Linux 系统 - 判断架构
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+      echo "🐧 检测到 Linux ARM64 系统"
+      docker run -d --name supercrawler -p 5510:5510 \
+        -v ~/supercrawler/data:/data \
+        -e CLOAK_HEADLESS=false \
+        ghcr.io/shun83914/supercrawler:v1.0.2-arm64
+    else
+      echo "🐧 检测到 Linux AMD64 系统"
+      docker run -d --name supercrawler -p 5510:5510 \
+        -v ~/supercrawler/data:/data \
+        -e CLOAK_HEADLESS=false \
+        ghcr.io/shun83914/supercrawler:v1.0.2-amd64
+    fi
+  else
+    # 其他系统（Windows 等）
+    echo "🖥️  检测到 $OS_TYPE 系统"
+    docker run -d --name supercrawler -p 5510:5510 \
+      -v ~/supercrawler/data:/data \
+      -e CLOAK_HEADLESS=false \
+      ghcr.io/shun83914/supercrawler:v1.0.2-amd64
+  fi
+  
+  # 等待容器启动
+  echo "⏳ 等待容器启动..."
+  sleep 3
+  
+  # 验证启动结果
+  if docker ps --filter "name=supercrawler" --format "{{.Names}}" | grep -q supercrawler; then
+    echo "✅ 容器启动成功"
+    docker ps --filter "name=supercrawler" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  else
+    echo "❌ 容器启动失败，请检查 Docker 日志"
+    docker logs supercrawler --tail 20
+    exit 1
+  fi
+fi
 ```
 
 **预期输出：**
 ```
+✅ supercrawler 容器正在运行
 NAMES         STATUS          PORTS
 supercrawler  Up 5 minutes    0.0.0.0:5510->5510/tcp
 ```
 
+**或者（首次启动）：**
+```
+⚠️  supercrawler 容器未运行，正在启动...
+🍎 检测到 macOS 系统
+⏳ 等待容器启动...
+✅ 容器启动成功
+NAMES         STATUS          PORTS
+supercrawler  Up 3 seconds    0.0.0.0:5510->5510/tcp
+```
+
 **决策：**
-- 如果容器存在 → 继续 Step 2
-- 如果容器不存在 → 提示用户先启动 Docker 镜像
+- 容器已运行或启动成功 → 继续 Step 2
+- 容器启动失败 → 检查错误日志并解决
 
 ---
 
@@ -34,7 +100,13 @@ supercrawler  Up 5 minutes    0.0.0.0:5510->5510/tcp
 
 **执行命令：**
 ```bash
-mkdir -p ~/.openclaw
+# 检查目录是否存在，不存在则创建
+if [ ! -d ~/.openclaw ]; then
+  mkdir -p ~/.openclaw
+  echo "✅ 已创建 ~/.openclaw 目录"
+else
+  echo "✅ ~/.openclaw 目录已存在"
+fi
 ```
 
 **说明：** 确保 `~/.openclaw` 目录存在
