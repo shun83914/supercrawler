@@ -106,5 +106,39 @@ curl -X POST http://localhost:5510/api/xhs/search \
 | 浏览器不弹出 | 确认启动时有 `-e CLOAK_HEADLESS=false` |
 | 提示未登录 | 先执行第 3 步扫码 |
 | 数据没了 | 检查 `~/supercrawler/data` 目录是否存在 |
+| Headed 模式无法显示窗口 | Docker 已内置 Xvfb 虚拟显示器，自动处理 |
+
+## 📚 重要概念
+
+### Headless vs Headed 模式
+
+**Headless（无头模式）** = 浏览器在后台运行，不显示界面
+- ✅ 优点：速度快、资源少、适合服务器
+- ❌ 缺点：某些网站会检测并阻止
+
+**Headed（有头模式）** = 浏览器正常显示界面
+- ✅ 优点：可以看到浏览器、可以扫码登录
+- ❌ 缺点：需要显示器（GUI 环境）
+
+### Docker 中的 Xvfb 虚拟显示器
+
+Docker 容器默认没有显示器，SuperCrawler 已集成 **Xvfb**（X Virtual Framebuffer）：
+- 在内存中创建虚拟显示器
+- 让 Headed 模式在 Docker 中正常工作
+- 自动启动，无需手动配置
+
+```bash
+# Headless 模式（默认，适合搜索抓取）
+docker run -d --name supercrawler -p 5510:5510 \
+  -v ~/supercrawler/data:/data \
+  -e CLOAK_HEADLESS=true \
+  ghcr.io/shun83914/supercrawler:v1.0.3-debian-amd64
+
+# Headed 模式（需要扫码登录，自动使用 Xvfb）
+docker run -d --name supercrawler -p 5510:5510 \
+  -v ~/supercrawler/data:/data \
+  -e CLOAK_HEADLESS=false \
+  ghcr.io/shun83914/supercrawler:v1.0.3-debian-amd64
+```
 
 详细文档：https://github.com/shun83914/supercrawler
