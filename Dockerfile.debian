@@ -15,8 +15,9 @@ ENV NODE_ENV=production \
     CLOAK_HEADLESS=true \
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 
-# 安装 Chromium 和 Playwright 依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 安装 Chromium 和 Playwright 依赖（添加重试机制）
+RUN apt-get update && \
+    (apt-get install -y --no-install-recommends \
       chromium \
       chromium-sandbox \
       libnss3 \
@@ -35,8 +36,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libatspi2.0-0 \
       fonts-liberation \
       fonts-noto-cjk \
-      && rm -rf /var/lib/apt/lists/* \
-      && chmod 4755 /usr/lib/chromium/chrome-sandbox
+    || (sleep 5 && apt-get install -y --no-install-recommends \
+      chromium \
+      chromium-sandbox \
+      libnss3 \
+      libatk1.0-0 \
+      libatk-bridge2.0-0 \
+      libcups2 \
+      libdrm2 \
+      libxkbcommon0 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxrandr2 \
+      libgbm1 \
+      libpango-1.0-0 \
+      libcairo2 \
+      libasound2 \
+      libatspi2.0-0 \
+      fonts-liberation \
+      fonts-noto-cjk)) \
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod 4755 /usr/lib/chromium/chrome-sandbox
 
 WORKDIR /app
 COPY --from=builder /app/package*.json ./
