@@ -21,8 +21,7 @@ RUN apk add --no-cache \
       freetype \
       harfbuzz \
       ca-certificates \
-      ttf-freefont \
-      tini
+      ttf-freefont
 
 WORKDIR /app
 COPY --from=builder /app/package*.json ./
@@ -33,6 +32,5 @@ COPY --from=builder /app/dist ./dist
 VOLUME ["/data"]
 EXPOSE 5510
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
 # 默认启动 HTTP 模式；若要切到 MCP stdio：command: ["node","dist/mcp/mcp.stdio.js"]
 CMD ["node", "dist/main.js"]
