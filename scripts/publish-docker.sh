@@ -5,6 +5,7 @@
 #   ./scripts/publish-docker.sh                    # 推 latest + 当前 git tag
 #   ./scripts/publish-docker.sh --tag v0.2.0       # 指定版本号
 #   ./scripts/publish-docker.sh --dry-run          # 只构建不推送
+#   ./scripts/publish-docker.sh --debian-only      # 只构建 Debian 版本
 #
 # 前提：
 #   1. 已登录 Docker Hub: docker login
@@ -19,6 +20,7 @@ GHCR_USER="${GHCR_USER:-}"                     # 你的 GitHub 用户名
 PUSH_TO_DOCKERHUB=true
 PUSH_TO_GHCR=true
 DRY_RUN=false
+DEBIAN_ONLY=false
 TAGS=()
 
 # ========== 解析参数 ==========
@@ -28,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --dockerhub-only) PUSH_TO_GHCR=false; shift ;;
     --ghcr-only) PUSH_TO_DOCKERHUB=false; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --debian-only) DEBIAN_ONLY=true; shift ;;
     *) echo "未知参数: $1"; exit 1 ;;
   esac
 done
@@ -90,19 +93,27 @@ fi
 docker buildx inspect --bootstrap supercrawler-builder >/dev/null 2>&1
 
 # ========== 构建多架构镜像 ==========
-echo "🔨 构建多架构镜像 (linux/amd64, linux/arm64)..."
+if $DEBIAN_ONLY; then
+  echo "🔨 构建 Debian 版本多架构镜像 (linux/amd64, linux/arm64)..."
+  DOCKERFILE="Dockerfile.debian"
+  TAG_SUFFIX="-debian"
+else
+  echo "🔨 构建 Alpine 版本多架构镜像 (linux/amd64, linux/arm64)..."
+  DOCKERFILE="Dockerfile"
+  TAG_SUFFIX=""
+fi
 
 # 构建目标 tags
 BUILD_TAGS=()
 if $PUSH_TO_DOCKERHUB && [[ -n "$DOCKERHUB_USER" ]]; then
   for tag in "${TAGS[@]}"; do
-    BUILD_TAGS+=("-t" "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}")
+    BUILD_TAGS+=("-t" "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}")
   done
 fi
 
 if $PUSH_TO_GHCR && [[ -n "$GHCR_USER" ]]; then
   for tag in "${TAGS[@]}"; do
-    BUILD_TAGS+=("-t" "ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}")
+    BUILD_TAGS+=("-t" "ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}")
   done
 fi
 
@@ -115,10 +126,11 @@ if $DRY_RUN; then
   done
   echo ""
   echo "   执行命令:"
-  echo "   docker buildx build --platform linux/amd64,linux/arm64 ${BUILD_TAGS[*]} --push ."
+  echo "   docker buildx build --platform linux/amd64,linux/arm64 -f ${DOCKERFILE} ${BUILD_TAGS[*]} --push ."
 else
   docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    -f "$DOCKERFILE" \
     "${BUILD_TAGS[@]}" \
     --push \
     --pull=false \

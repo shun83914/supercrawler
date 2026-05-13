@@ -28,33 +28,37 @@ else
   if [ "$OS_TYPE" = "Darwin" ]; then
     # macOS 系统
     echo "🍎 检测到 macOS 系统"
+    # 使用 Debian 版本镜像（兼容性最好）
     docker run -d --name supercrawler -p 5510:5510 \
       -v ~/supercrawler/data:/data \
       -e CLOAK_HEADLESS=false \
-      ghcr.io/shun83914/supercrawler:v1.0.2-arm64
+      ghcr.io/shun83914/supercrawler:v1.0.3-debian-arm64
   elif [ "$OS_TYPE" = "Linux" ]; then
     # Linux 系统 - 判断架构
     ARCH=$(uname -m)
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
       echo "🐧 检测到 Linux ARM64 系统"
+      # 使用 Debian 版本镜像（兼容性最好）
       docker run -d --name supercrawler -p 5510:5510 \
         -v ~/supercrawler/data:/data \
         -e CLOAK_HEADLESS=false \
-        ghcr.io/shun83914/supercrawler:v1.0.2-arm64
+        ghcr.io/shun83914/supercrawler:v1.0.3-debian-arm64
     else
       echo "🐧 检测到 Linux AMD64 系统"
+      # 使用 Debian 版本镜像（兼容性最好）
       docker run -d --name supercrawler -p 5510:5510 \
         -v ~/supercrawler/data:/data \
         -e CLOAK_HEADLESS=false \
-        ghcr.io/shun83914/supercrawler:v1.0.2-amd64
+        ghcr.io/shun83914/supercrawler:v1.0.3-debian-amd64
     fi
   else
     # 其他系统（Windows 等）
     echo "🖥️  检测到 $OS_TYPE 系统"
+    # 使用 Debian 版本镜像（兼容性最好）
     docker run -d --name supercrawler -p 5510:5510 \
       -v ~/supercrawler/data:/data \
       -e CLOAK_HEADLESS=false \
-      ghcr.io/shun83914/supercrawler:v1.0.2-amd64
+      ghcr.io/shun83914/supercrawler:v1.0.3-debian-amd64
   fi
   
   # 等待容器启动
