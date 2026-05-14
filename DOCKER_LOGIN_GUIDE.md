@@ -44,7 +44,7 @@ curl -X POST http://localhost:5510/api/auth/login \
 
 ```bash
 # 进入容器执行截图
-docker exec supercrawler scrot -d :99 /tmp/qr-code.png -q 90
+docker exec supercrawler sh -c 'DISPLAY=:99 scrot /tmp/qr-code.png -q 90'
 
 # 复制到宿主机
 docker cp supercrawler:/tmp/qr-code.png ./qr-code.png

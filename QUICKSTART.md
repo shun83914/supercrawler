@@ -32,7 +32,7 @@ curl -X POST http://localhost:5510/api/auth/login \
   -d '{"accountId":"default"}'
 
 # Docker 中获取二维码截图：
-docker exec supercrawler scrot -d :99 /tmp/qr.png -q 90
+docker exec supercrawler sh -c 'DISPLAY=:99 scrot /tmp/qr.png -q 90'
 docker cp supercrawler:/tmp/qr.png ./qr.png
 open ./qr.png  # macOS 查看
 # 用小红书 App 扫码
@@ -45,7 +45,7 @@ curl -X POST http://localhost:5510/api/auth/login \
   -d '{"accountId":"default","platform":"douyin"}'
 
 # 同样方式获取二维码截图
-docker exec supercrawler scrot -d :99 /tmp/qr.png -q 90
+docker exec supercrawler sh -c 'DISPLAY=:99 scrot /tmp/qr.png -q 90'
 docker cp supercrawler:/tmp/qr.png ./qr.png
 open ./qr.png
 # 用抖音 App 扫码

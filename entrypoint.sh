@@ -45,7 +45,7 @@ if [ "$CLOAK_HEADLESS" = "false" ]; then
   echo "         -H 'Content-Type: application/json' \\"
   echo "         -d '{\"accountId\":\"default\"}'"
   echo "   2. 获取二维码截图:"
-  echo "      docker exec supercrawler scrot -d :99 /tmp/qr.png -q 90"
+  echo "      docker exec supercrawler sh -c 'DISPLAY=:99 scrot /tmp/qr.png -q 90'"
   echo "      docker cp supercrawler:/tmp/qr.png ./qr.png"
   echo "      open ./qr.png  # macOS"
   echo "   3. 使用小红书 App 扫码"

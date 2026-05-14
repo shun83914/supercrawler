@@ -223,7 +223,7 @@ docker exec supercrawler x11vnc -display :99 -forever -nopw -listen 0.0.0.0 -rfb
 ```bash
 # 截取虚拟显示器屏幕
 docker exec supercrawler apt-get install -y scrot
-docker exec supercrawler scrot -d :99 /tmp/screen.png
+docker exec supercrawler sh -c 'DISPLAY=:99 scrot /tmp/screen.png'
 
 # 复制到宿主机
 docker cp supercrawler:/tmp/screen.png ./screen.png
