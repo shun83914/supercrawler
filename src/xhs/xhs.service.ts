@@ -23,6 +23,7 @@ import { CommentsStrategy } from './strategies/comments.strategy';
 import { NoteDetailStrategy } from './strategies/note-detail.strategy';
 import { SearchResultItem, SearchStrategy, enrichItemsInPlace } from './strategies/search.strategy';
 import { UserProfileStrategy } from './strategies/user-profile.strategy';
+import { AuthService } from '../auth/auth.service';
 
 export interface ScrapeSummary<T = unknown> {
   target: 'note' | 'user' | 'search' | 'comments';
@@ -60,6 +61,7 @@ export class XhsService implements OnModuleInit {
     private readonly userStrategy: UserProfileStrategy,
     private readonly searchStrategy: SearchStrategy,
     private readonly commentsStrategy: CommentsStrategy,
+    private readonly auth: AuthService,
   ) {}
 
   onModuleInit(): void {
@@ -223,6 +225,10 @@ export class XhsService implements OnModuleInit {
   private async doScrapeNotes(dto: ScrapeNoteDto): Promise<ScrapeSummary<NoteEntity>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'xhs');
+    
     const lease = await this.pages.acquire(accountId);
     const results: NoteEntity[] = [];
     try {
@@ -251,6 +257,10 @@ export class XhsService implements OnModuleInit {
   private async doScrapeUser(dto: ScrapeUserDto): Promise<ScrapeSummary<UserEntity>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'xhs');
+    
     const lease = await this.pages.acquire(accountId);
     try {
       const data = await this.userStrategy.run(
@@ -268,6 +278,10 @@ export class XhsService implements OnModuleInit {
   private async doScrapeSearch(dto: ScrapeSearchDto): Promise<ScrapeSummary<SearchResultItem>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'xhs');
+    
     const lease = await this.pages.acquire(accountId);
     const aggregated: SearchResultItem[] = [];
     const wantDateFilter = Boolean(dto.publishedAfter || dto.publishedBefore);
@@ -367,6 +381,10 @@ export class XhsService implements OnModuleInit {
   private async doScrapeComments(dto: ScrapeCommentsDto): Promise<ScrapeSummary<CommentEntity>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'xhs');
+    
     const lease = await this.pages.acquire(accountId);
     try {
       const data = await this.commentsStrategy.run(
@@ -402,5 +420,17 @@ export class XhsService implements OnModuleInit {
       cached: false,
       records,
     };
+  }
+
+  /** 检查登录状态，未则抛出异常 */
+  private async ensureLoggedIn(accountId: string, platform: 'xhs' | 'douyin'): Promise<void> {
+    const status = await this.auth.checkStatus(accountId, platform);
+    if (!status.loggedIn) {
+      throw new BusinessException(
+        ErrorCode.LOGIN_REQUIRED,
+        `${platform} 未登录，请先调用 /api/auth/login 进行登录`,
+      );
+    }
+    this.logger.log(`[${platform}/${accountId}] 已登录，userId=${status.userId || 'unknown'}`);
   }
 }

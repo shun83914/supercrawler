@@ -32,6 +32,7 @@ import { AwemeDetailStrategy } from './strategies/aweme-detail.strategy';
 import { CommentsStrategy } from './strategies/comments.strategy';
 import { DouyinSearchItem, SearchStrategy } from './strategies/search.strategy';
 import { UserProfileStrategy } from './strategies/user-profile.strategy';
+import { AuthService } from '../auth/auth.service';
 
 export interface DouyinScrapeResponseOptions {
   includeRecords?: boolean;
@@ -84,6 +85,7 @@ export class DouyinService implements OnModuleInit {
     private readonly userStrategy: UserProfileStrategy,
     private readonly searchStrategy: SearchStrategy,
     private readonly commentsStrategy: CommentsStrategy,
+    private readonly auth: AuthService,
   ) {}
 
   onModuleInit(): void {
@@ -293,6 +295,10 @@ export class DouyinService implements OnModuleInit {
   ): Promise<DouyinScrapeSummary<AwemeEntity>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'douyin');
+    
     const lease = await this.pages.acquire(accountId);
     const results: AwemeEntity[] = [];
     try {
@@ -329,6 +335,10 @@ export class DouyinService implements OnModuleInit {
   ): Promise<DouyinScrapeSummary<DouyinUserEntity>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'douyin');
+    
     const lease = await this.pages.acquire(accountId);
     try {
       const data = await this.userStrategy.run(
@@ -350,6 +360,10 @@ export class DouyinService implements OnModuleInit {
   ): Promise<DouyinScrapeSummary<DouyinSearchItem>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'douyin');
+    
     const lease = await this.pages.acquire(accountId);
     const aggregated: DouyinSearchItem[] = [];
     const limit = dto.limit ?? 20;
@@ -384,6 +398,10 @@ export class DouyinService implements OnModuleInit {
   ): Promise<DouyinScrapeSummary<DouyinCommentEntity>> {
     const start = Date.now();
     const accountId = dto.accountId ?? 'default';
+    
+    // 检查登录状态
+    await this.ensureLoggedIn(accountId, 'douyin');
+    
     const lease = await this.pages.acquire(accountId);
     try {
       const data = await this.commentsStrategy.run(
@@ -421,5 +439,17 @@ export class DouyinService implements OnModuleInit {
       cached: false,
       records,
     };
+  }
+
+  /** 检查登录状态，未则抛出异常 */
+  private async ensureLoggedIn(accountId: string, platform: 'xhs' | 'douyin'): Promise<void> {
+    const status = await this.auth.checkStatus(accountId, platform);
+    if (!status.loggedIn) {
+      throw new BusinessException(
+        ErrorCode.LOGIN_REQUIRED,
+        `${platform} 未登录，请先调用 /api/auth/login 进行登录`,
+      );
+    }
+    this.logger.log(`[${platform}/${accountId}] 已登录，userId=${status.userId || 'unknown'}`);
   }
 }

@@ -38,6 +38,7 @@ export class ApiKeyGuard implements CanActivate {
     if (isPublic) return true;
 
     const expected = this.config.get('apiToken', { infer: true });
+    this.logger.debug(`API Token check: expected=${expected ? '***' + expected.slice(-8) : '(empty)'}, env.API_TOKEN=${process.env.API_TOKEN ? '***' + process.env.API_TOKEN.slice(-8) : '(empty)'}`);
     if (!expected) return true; // 未配置 token 时直接放行
 
     const req = context.switchToHttp().getRequest<Request>();

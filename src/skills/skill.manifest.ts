@@ -351,6 +351,96 @@ export const SKILL_MANIFEST: SkillDef[] = [
     inputSchema: { type: 'object', properties: {} },
     outputHint: '{ status, uptime, accounts, semaphore, cache }',
   },
+  // ========== 美团经营宝 ==========
+  {
+    name: 'meituan.scrapeOrders',
+    description: '抓取美团经营宝订单数据，支持日期范围、状态过滤',
+    http: { method: 'POST', path: '/api/meituan/orders' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', format: 'date-time', description: '开始日期（ISO 8601）' },
+        endDate: { type: 'string', format: 'date-time', description: '结束日期（ISO 8601）' },
+        status: { type: 'string', description: '订单状态过滤' },
+        limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+        ...ACCOUNT_FIELD,
+        ...RESPONSE_OPTIONS_FIELDS,
+      },
+    },
+    outputHint: 'ScrapeSummary { target: "orders", file, count, preview, [records] }',
+    preconditions: ['accountId 对应 profile 已登录美团经营宝'],
+    requiresLogin: true,
+  },
+  {
+    name: 'meituan.scrapeProducts',
+    description: '抓取美团经营宝商品数据，支持分类、关键词过滤',
+    http: { method: 'POST', path: '/api/meituan/products' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', description: '商品分类' },
+        keyword: { type: 'string', description: '关键词过滤' },
+        limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+        ...ACCOUNT_FIELD,
+        ...RESPONSE_OPTIONS_FIELDS,
+      },
+    },
+    outputHint: 'ScrapeSummary { target: "products", file, count, preview, [records] }',
+    requiresLogin: true,
+  },
+  {
+    name: 'meituan.scrapeReviews',
+    description: '抓取美团经营宝商品评价，需要 productId，支持评分过滤',
+    http: { method: 'POST', path: '/api/meituan/reviews' },
+    inputSchema: {
+      type: 'object',
+      required: ['productId'],
+      properties: {
+        productId: { type: 'string', description: '商品 ID' },
+        rating: { type: 'integer', minimum: 1, maximum: 5, description: '最低评分过滤' },
+        limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+        ...ACCOUNT_FIELD,
+        ...RESPONSE_OPTIONS_FIELDS,
+      },
+    },
+    outputHint: 'ScrapeSummary { target: "reviews", file, count, preview, [records] }',
+    requiresLogin: true,
+  },
+  {
+    name: 'meituan.scrapePromotionCampaigns',
+    description: '抓取美团经营宝推广通活动数据，支持状态、类型过滤',
+    http: { method: 'POST', path: '/api/meituan/promotion/campaigns' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: '活动状态：running/paused/expired' },
+        campaignType: { type: 'string', description: '活动类型' },
+        limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+        ...ACCOUNT_FIELD,
+        ...RESPONSE_OPTIONS_FIELDS,
+      },
+    },
+    outputHint: 'ScrapeSummary { target: "promotion-campaigns", file, count, preview, [records] }',
+    preconditions: ['accountId 对应 profile 已登录美团经营宝'],
+    requiresLogin: true,
+  },
+  {
+    name: 'meituan.scrapePromotionStats',
+    description: '抓取美团经营宝推广数据统计，支持日期范围、周期选择',
+    http: { method: 'POST', path: '/api/meituan/promotion/stats' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['day', 'week', 'month'], description: '统计周期' },
+        startDate: { type: 'string', format: 'date-time', description: '开始日期（ISO 8601）' },
+        endDate: { type: 'string', format: 'date-time', description: '结束日期（ISO 8601）' },
+        ...ACCOUNT_FIELD,
+        ...RESPONSE_OPTIONS_FIELDS,
+      },
+    },
+    outputHint: 'ScrapeSummary { target: "promotion-stats", file, count, preview, [records] }',
+    requiresLogin: true,
+  },
 ];
 
 export const SKILL_INDEX: Record<string, SkillDef> = Object.fromEntries(

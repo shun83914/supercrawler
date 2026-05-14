@@ -1,0 +1,10 @@
+{
+  "name": "meituan-scraper",
+  "version": "0.1.0",
+  "manifest": "SKILL.md",
+  "entry": "index.mjs",
+  "requires": ["supercrawler"],
+  "env": {
+    "SUPERCRAWLER_TOKEN": "${env:SUPERCRAWLER_TOKEN}"
+  }
+}

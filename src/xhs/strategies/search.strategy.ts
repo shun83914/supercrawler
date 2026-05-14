@@ -88,9 +88,20 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
       await page.waitForLoadState('networkidle').catch(() => undefined);
       await randomSleep(800, 1600);
 
+      // 调试：检查页面标题和URL
+      const pageTitle = await page.title();
+      const currentUrl = page.url();
+      this.logger.log(`[search:${input.keyword}] page loaded: ${currentUrl}, title: ${pageTitle}`);
+
       const collected = new Map<string, SearchResultItem>();
       let stagnant = 0;
       for (let round = 0; round < 120 && collected.size < fetchLimit; round++) {
+        // 调试：首轮检查DOM元素数量
+        if (round === 0) {
+          const domCount = await page.$$eval('section.note-item, a.cover', (nodes) => nodes.length).catch(() => 0);
+          this.logger.log(`[search:${input.keyword}] DOM elements found: ${domCount}`);
+        }
+        
         const batch = await page.$$eval('section.note-item, a.cover', (nodes) =>
           nodes.slice(0, 400).map((el) => {
             const anchor = (el.tagName === 'A' ? el : el.querySelector('a')) as

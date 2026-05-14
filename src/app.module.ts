@@ -1,3 +1,5 @@
+import * as dotenv from 'dotenv';
+import * as dotenvExpand from 'dotenv-expand';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -16,10 +18,16 @@ import { SkillsModule } from './skills/skills.module';
 import { StorageModule } from './storage/storage.module';
 import { DouyinModule } from './douyin/douyin.module';
 import { XhsModule } from './xhs/xhs.module';
+import { MeituanModule } from './meituan/meituan.module';
+
+// 加载 .env 并支持变量引用语法 ${VAR}
+const envResult = dotenv.config({ path: '.env' });
+dotenvExpand.expand(envResult);
 
 @Module({
   imports: [
     ConfigModule.forRoot({
+      envFilePath:'.env',
       isGlobal: true,
       load: [configuration],
       cache: true,
@@ -49,6 +57,7 @@ import { XhsModule } from './xhs/xhs.module';
     AuthModule,
     XhsModule,
     DouyinModule,
+    MeituanModule,
     SkillsModule,
   ],
   controllers: [AppController],

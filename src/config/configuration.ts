@@ -24,6 +24,13 @@ export interface AppConfig {
     navigationTimeoutMs: number;
     loginWaitMs: number;
   };
+  meituan: {
+    concurrency: number;
+    minDelayMs: number;
+    maxDelayMs: number;
+    navigationTimeoutMs: number;
+    loginWaitMs: number;
+  };
   cache: {
     ttlMs: number;
     maxEntries: number;
@@ -69,6 +76,13 @@ export default (): AppConfig => ({
     maxDelayMs: toInt(process.env.DOUYIN_MAX_DELAY_MS, 3000),
     navigationTimeoutMs: toInt(process.env.DOUYIN_NAV_TIMEOUT_MS, 45000),
     loginWaitMs: toInt(process.env.DOUYIN_LOGIN_WAIT_MS, 300000),
+  },
+  meituan: {
+    concurrency: toInt(process.env.MEITUAN_SCRAPE_CONCURRENCY, 1),
+    minDelayMs: toInt(process.env.MEITUAN_MIN_DELAY_MS, 1000),
+    maxDelayMs: toInt(process.env.MEITUAN_MAX_DELAY_MS, 2000),
+    navigationTimeoutMs: toInt(process.env.MEITUAN_NAV_TIMEOUT_MS, 45000),
+    loginWaitMs: toInt(process.env.MEITUAN_LOGIN_WAIT_MS, 300000),
   },
   cache: {
     ttlMs: toInt(process.env.CACHE_TTL_MS, 5 * 60 * 1000),

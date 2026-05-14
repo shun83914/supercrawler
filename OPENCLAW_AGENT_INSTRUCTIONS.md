@@ -701,6 +701,13 @@ curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=xhs" |
 - `supercrawler:douyin_scrape_comments`
 - `supercrawler:douyin_batch`
 
+**美团经营宝工具（需要 platform="meituan"）：**
+- `supercrawler:meituan_scrape_orders` — 订单数据抓取
+- `supercrawler:meituan_scrape_products` — 商品数据抓取
+- `supercrawler:meituan_scrape_reviews` — 商品评价抓取
+- `supercrawler:meituan_scrape_promotion_campaigns` — 推广通活动抓取
+- `supercrawler:meituan_scrape_promotion_stats` — 推广数据统计
+
 ---
 
 ## 示例 1：搜索小红书笔记
@@ -856,8 +863,9 @@ supercrawler:xhs_batch({
 ## 3. 并发限制
 
 - 小红书并发 = 1（串行执行，避免风控）
+- 美团并发 = 1（串行执行）
 - 批量任务使用 `xhs_batch`，服务端自动延迟
-- **不要并发调用多个 xhs_* 工具**
+- **不要并发调用多个 xhs_* 或 meituan_* 工具**
 
 ## 4. 错误码处理
 
@@ -883,6 +891,124 @@ Agent 识别到"小红书"+"搜"
 ```
 
 **无需手动指定工具！**
+
+---
+
+## 示例 5：美团经营宝 - 抓取订单数据
+
+> **用户**: 帮我抓取美团经营宝最近 7 天的订单
+
+**Agent 自动执行：**
+
+1. **检查服务**
+   ```
+   supercrawler:health()
+   → {status: "ok"}
+   ```
+
+2. **检查美团登录**
+   ```
+   supercrawler:auth_status({accountId: "meituan-default", platform: "meituan"})
+   → {loggedIn: true}
+   ```
+   
+   *如果未登录，Agent 会调用：*
+   ```
+   supercrawler:auth_login({accountId: "meituan-default", platform: "meituan"})
+   → 弹出浏览器，等待用户登录
+   ```
+
+3. **抓取订单**
+   ```
+   supercrawler:meituan_scrape_orders({
+     startDate: "2025-05-04T00:00:00Z",
+     endDate: "2025-05-11T23:59:59Z",
+     limit: 100
+   })
+   → {
+       data: {
+         file: "/data/output/meituan-orders-2025-05-11.jsonl",
+         count: 85,
+         preview: [
+           {id: "123456", title: "商品A", brief: "￥50 | 已完成"},
+           ...
+         ]
+       }
+     }
+   ```
+
+4. **汇总答复**
+   - 订单总数：85 单
+   - 总金额：￥4,250
+   - 完成状态分布
+
+---
+
+## 示例 6：美团经营宝 - 推广数据分析
+
+> **用户**: 查看最近 30 天的推广效果，ROI 怎么样？
+
+**Agent 自动执行：**
+
+1. **抓取推广通活动**
+   ```
+   supercrawler:meituan_scrape_promotion_campaigns({
+     status: "running",
+     limit: 50
+   })
+   → 获取所有运行中的活动
+   ```
+
+2. **抓取推广统计数据**
+   ```
+   supercrawler:meituan_scrape_promotion_stats({
+     period: "day",
+     startDate: "2025-04-11T00:00:00Z",
+     endDate: "2025-05-11T23:59:59Z"
+   })
+   → 获取每日推广数据
+   ```
+
+3. **抓取订单数据**
+   ```
+   supercrawler:meituan_scrape_orders({
+     startDate: "2025-04-11T00:00:00Z",
+     endDate: "2025-05-11T23:59:59Z",
+     limit: 200
+   })
+   → 获取订单数据用于对比
+   ```
+
+4. **分析并生成报告**
+   - 推广总消耗：￥5,000
+   - 推广带来订单：120 单
+   - 推广收入：￥15,000
+   - **ROI = 15000 / 5000 = 3.0**
+   - 平均 CTR：5.2%
+   - 最佳表现活动：活动A（ROI 4.5）
+   - 优化建议：增加活动A预算，暂停活动C
+
+---
+
+## 示例 7：美团经营宝 - 商品评价分析
+
+> **用户**: 抓取商品 123456 的评价，看看用户反馈如何
+
+**Agent 自动执行：**
+
+```
+supercrawler:meituan_scrape_reviews({
+  productId: "123456",
+  limit: 100
+})
+→ 获取 100 条评价
+```
+
+**分析结果：**
+- 平均评分：4.5 星
+- 好评率：90%
+- 关键词分析：“口味好”、“配送快”、“包装精美”
+- 负面反馈：“价格稍贵”（5%）
 
 ---
 

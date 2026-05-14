@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { INestApplicationContext } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import { DouyinService } from '../douyin/douyin.service';
+import { MeituanService } from '../meituan/meituan.service';
 import { JsonlReaderService } from '../storage/jsonl-reader.service';
 import { XhsService } from '../xhs/xhs.service';
 import { AppService } from '../app.service';
@@ -67,6 +68,7 @@ export function registerSkillTools(
 ): void {
   const xhs = ctx.get(XhsService);
   const douyin = ctx.get(DouyinService);
+  const meituan = ctx.get(MeituanService);
   const auth = ctx.get(AuthService);
   const reader = ctx.get(JsonlReaderService);
   const appSvc = ctx.get(AppService);
@@ -370,6 +372,98 @@ export function registerSkillTools(
     (args: unknown) =>
       safe(() =>
         douyin.runBatch(args as Parameters<DouyinService['runBatch']>[0]),
+      ),
+  );
+
+  // ========== 美团经营宝 MCP Tools ==========
+  server.registerTool(
+    'meituan_scrape_orders',
+    {
+      description: '抓取美团经营宝订单数据（支持日期范围、状态过滤）',
+      inputSchema: {
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        status: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        accountId,
+        ...respOpts,
+      },
+    },
+    (args: unknown) =>
+      safe(() =>
+        meituan.scrapeOrders(args as Parameters<MeituanService['scrapeOrders']>[0]),
+      ),
+  );
+
+  server.registerTool(
+    'meituan_scrape_products',
+    {
+      description: '抓取美团经营宝商品数据（支持分类、关键词过滤）',
+      inputSchema: {
+        category: z.string().optional(),
+        keyword: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        accountId,
+        ...respOpts,
+      },
+    },
+    (args: unknown) =>
+      safe(() =>
+        meituan.scrapeProducts(args as Parameters<MeituanService['scrapeProducts']>[0]),
+      ),
+  );
+
+  server.registerTool(
+    'meituan_scrape_reviews',
+    {
+      description: '抓取美团经营宝商品评价（需要 productId，支持评分过滤）',
+      inputSchema: {
+        productId: z.string(),
+        rating: z.number().int().min(1).max(5).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        accountId,
+        ...respOpts,
+      },
+    },
+    (args: unknown) =>
+      safe(() =>
+        meituan.scrapeReviews(args as Parameters<MeituanService['scrapeReviews']>[0]),
+      ),
+  );
+
+  server.registerTool(
+    'meituan_scrape_promotion_campaigns',
+    {
+      description: '抓取美团经营宝推广通活动数据（支持状态、类型过滤）',
+      inputSchema: {
+        status: z.string().optional(),
+        campaignType: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        accountId,
+        ...respOpts,
+      },
+    },
+    (args: unknown) =>
+      safe(() =>
+        meituan.scrapePromotionCampaigns(args as Parameters<MeituanService['scrapePromotionCampaigns']>[0]),
+      ),
+  );
+
+  server.registerTool(
+    'meituan_scrape_promotion_stats',
+    {
+      description: '抓取美团经营宝推广数据统计（支持日期范围、周期选择）',
+      inputSchema: {
+        period: z.enum(['day', 'week', 'month']).optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        accountId,
+        ...respOpts,
+      },
+    },
+    (args: unknown) =>
+      safe(() =>
+        meituan.scrapePromotionStats(args as Parameters<MeituanService['scrapePromotionStats']>[0]),
       ),
   );
 }
