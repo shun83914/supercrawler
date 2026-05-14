@@ -30,7 +30,12 @@ echo "✅ 服务已启动，访问 http://localhost:5510"
 curl -X POST http://localhost:5510/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"accountId":"default"}'
-# 弹出的浏览器中用小红书 App 扫码
+
+# Docker 中获取二维码截图：
+docker exec supercrawler scrot -d :99 /tmp/qr.png -q 90
+docker cp supercrawler:/tmp/qr.png ./qr.png
+open ./qr.png  # macOS 查看
+# 用小红书 App 扫码
 ```
 
 **抖音：**
@@ -38,8 +43,18 @@ curl -X POST http://localhost:5510/api/auth/login \
 curl -X POST http://localhost:5510/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"accountId":"default","platform":"douyin"}'
-# 弹出的浏览器中用抖音 App 扫码
+
+# 同样方式获取二维码截图
+docker exec supercrawler scrot -d :99 /tmp/qr.png -q 90
+docker cp supercrawler:/tmp/qr.png ./qr.png
+open ./qr.png
+# 用抖音 App 扫码
 ```
+
+> 💡 **Docker 中看不到浏览器？**
+> - 容器使用 Xvfb 虚拟显示器
+> - 需要通过截图获取二维码
+> - 详细指南：[DOCKER_LOGIN_GUIDE.md](DOCKER_LOGIN_GUIDE.md)
 
 ### 4️⃣ OpenClaw 配置
 

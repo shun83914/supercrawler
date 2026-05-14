@@ -36,5 +36,23 @@ echo "   端口: ${PORT:-5510}"
 echo "   Headless: ${CLOAK_HEADLESS:-true}"
 echo ""
 
+# 如果是 Headed 模式，提示如何获取二维码
+if [ "$CLOAK_HEADLESS" = "false" ]; then
+  echo "📱 Headed 模式已启用（支持扫码登录）"
+  echo ""
+  echo "💡 扫码登录提示："
+  echo "   1. 触发登录: curl -X POST http://localhost:${PORT:-5510}/api/auth/login \\"
+  echo "         -H 'Content-Type: application/json' \\"
+  echo "         -d '{\"accountId\":\"default\"}'"
+  echo "   2. 获取二维码截图:"
+  echo "      docker exec supercrawler scrot -d :99 /tmp/qr.png -q 90"
+  echo "      docker cp supercrawler:/tmp/qr.png ./qr.png"
+  echo "      open ./qr.png  # macOS"
+  echo "   3. 使用小红书 App 扫码"
+  echo ""
+  echo "📖 详细文档: DOCKER_LOGIN_GUIDE.md"
+  echo ""
+fi
+
 # 执行主进程
 exec node dist/main.js "$@"

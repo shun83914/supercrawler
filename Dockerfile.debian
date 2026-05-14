@@ -40,6 +40,8 @@ RUN apt-get update && \
       # Xvfb 虚拟显示器（支持 Headed 模式扫码）
       xvfb \
       x11-utils \
+      # 截图工具（用于捕获二维码）
+      scrot \
     || (sleep 5 && apt-get install -y --no-install-recommends \
       chromium \
       chromium-sandbox \
@@ -60,7 +62,8 @@ RUN apt-get update && \
       fonts-liberation \
       fonts-noto-cjk \
       xvfb \
-      x11-utils)) \
+      x11-utils \
+      scrot)) \
     && rm -rf /var/lib/apt/lists/* \
     && chmod 4755 /usr/lib/chromium/chrome-sandbox
 
