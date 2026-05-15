@@ -445,10 +445,9 @@ export class DouyinService implements OnModuleInit {
   private async ensureLoggedIn(accountId: string, platform: 'xhs' | 'douyin'): Promise<void> {
     const status = await this.auth.checkStatus(accountId, platform);
     if (!status.loggedIn) {
-      throw new BusinessException(
-        ErrorCode.LOGIN_REQUIRED,
-        `${platform} 未登录，请先调用 /api/auth/login 进行登录`,
-      );
+      // 使用详细的错误提示
+      const message = status.suggestion || `${platform} 未登录，请先调用 /api/auth/login 进行登录`;
+      throw new BusinessException(ErrorCode.LOGIN_REQUIRED, message);
     }
     this.logger.log(`[${platform}/${accountId}] 已登录，userId=${status.userId || 'unknown'}`);
   }

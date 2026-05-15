@@ -78,8 +78,11 @@ bash .openclaw/mcp.absolute.generate.sh --to-home
 ## 运维工具
 
 | 命令 | 用途 |
-|---|---|
+|------|------|
 | `npm run gen-token` | 生成 token 并写入 .env |
 | `npm run gen-token -- --print-only` | 仅打印不落盘 |
 | `npm run accounts:status` | 表格输出所有账号的登录态 |
 | `npm run accounts:status -- --json` | JSON 输出（CI 巡检）、退出码 0=全健康 / 1=部分失效 / 2=服务不可达 |
+| `./scripts/login.sh xhs` | 小红书登录（自动处理 Headed/Headless 切换） |
+| `./scripts/login.sh douyin` | 抖音登录 |
+| `./scripts/login.sh xhs biz1` | 多账号登录 |

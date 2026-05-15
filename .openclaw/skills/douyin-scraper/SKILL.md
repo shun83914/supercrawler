@@ -7,6 +7,7 @@ tools:
   - supercrawler:health
   - supercrawler:auth_status
   - supercrawler:auth_login
+  - supercrawler:auth_cleanup
   - supercrawler:douyin_scrape_awemes
   - supercrawler:douyin_scrape_user
   - supercrawler:douyin_scrape_search
@@ -24,7 +25,9 @@ tools:
 ### Step 1: 前置检查
 1. 调用 `supercrawler:health` 确认服务在线
 2. 调用 `supercrawler:auth_status({ platform: "douyin" })` 探测 `accountId`（默认 `default`）
-3. 若 `loggedIn=false` → 调 `supercrawler:auth_login({ platform: "douyin" })`（宿主机会自动弹出浏览器扫码）
+3. 若 `loggedIn=false` → 根据 `reason` 字段处理：
+   - `NEVER_LOGGED_IN` / `LOGIN_EXPIRED` / `CLEANED_UP` → 提示用户重新登录
+   - `PROFILE_DELETED` → 提示用户登录数据已删除，需重新登录
 
 ### Step 2: 识别任务类型并调对应工具
 
@@ -44,7 +47,8 @@ tools:
 | code | 处理 |
 |---|---|
 | `OK` | 正常返回 |
-| `LOGIN_REQUIRED` / `LOGIN_TIMEOUT` | 调 `auth_login({ platform: "douyin" })` |
+| `LOGIN_REQUIRED` | 调 `auth_status` 检查原因，提示用户重新登录 |
+| `LOGIN_TIMEOUT` | 登录超时，提示用户重试 |
 | `DOUYIN_CAPTCHA` | 立刻停止；告知用户需在 headed 浏览器人工通过验证码（再次跑 `auth_login`） |
 | `RATE_LIMITED` / `DOUYIN_BLOCKED` | 停止，告知用户退避 ≥5 分钟 |
 | `DOUYIN_TARGET_NOT_FOUND` | 该目标已被删/私密，跳过 |
@@ -78,3 +82,70 @@ tools:
 - **大量目标（>3）优先 `douyin_batch`**，服务端有自动延迟比 for-loop 安全
 - **`auth_login` 必须传 `platform:"douyin"`**，否则会进小红书页
 - **遇到 `DOUYIN_CAPTCHA` 立即停止**，避免账号被进一步处罚
+
+## 登录态管理
+
+### 检查登录状态
+```javascript
+auth_status({ accountId: "default", platform: "douyin" })
+```
+
+返回结果示例：
+- `{ loggedIn: true, cached: true }` - 已登录（缓存命中，7 天内验证过）
+- `{ loggedIn: false, reason: "NEVER_LOGGED_IN" }` - 从未登录
+- `{ loggedIn: false, reason: "LOGIN_EXPIRED", lastLoginAt: "2026-04-15" }` - 登录过期
+- `{ loggedIn: false, reason: "CLEANED_UP" }` - 过期数据已清理
+- `{ loggedIn: false, reason: "PROFILE_DELETED" }` - 登录数据被删除
+
+### 处理登录失败
+
+当抓取返回 `LOGIN_REQUIRED` 错误时：
+1. 调用 `auth_status` 检查具体原因
+2. 根据 `reason` 字段提示用户：
+   ```
+   ⚠️ 抖音账号未登录
+   原因：{reason}
+   
+   请执行以下命令重新登录：
+   ./scripts/login.sh douyin
+   
+   登录完成后继续抓取。
+   ```
+3. 用户完成登录后继续抓取
+
+### 清理过期数据（可选）
+```javascript
+auth_cleanup({ accountId: "default", platform: "douyin", force: false })
+```
+- 默认只在过期 ≥ 7 天后清理
+- 设置 `force: true` 强制清理
+
+### ⚠️ 登录模式说明
+
+**重要：OpenClaw 服务运行在 Headless 模式（无法弹出浏览器）**
+
+登录需要切换到 Headed 模式，请使用以下方法之一：
+
+1. **使用登录脚本（推荐）**
+   ```bash
+   # 抖音登录
+   ./scripts/login.sh douyin
+   ```
+
+2. **手动启动 Headed 容器**
+   ```bash
+   docker run -d --name supercrawler-login -p 5510:5510 \
+     -v ~/supercrawler-test/data:/data \
+     -e CLOAK_HEADLESS=false \
+     -e DISPLAY=:99 \
+     supercrawler:latest
+   
+   # 触发登录
+   curl -X POST http://localhost:5510/api/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{"accountId":"default","platform":"douyin"}'
+   ```
+
+3. **如果已有有效 cookies，无需重新登录**
+   - 登录态通过 Volume 挂载持久化
+   - 7 天内自动缓存，不重复验证

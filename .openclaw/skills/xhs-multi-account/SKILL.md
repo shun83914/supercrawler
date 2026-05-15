@@ -8,6 +8,7 @@ tools:
   - supercrawler:health
   - supercrawler:auth_status
   - supercrawler:auth_login
+  - supercrawler:auth_cleanup
   - supercrawler:xhs_scrape_notes
   - supercrawler:xhs_scrape_user
   - supercrawler:xhs_scrape_search
@@ -47,7 +48,7 @@ skill 钩子会：
 | code | 单账号版 | 多账号版差异 |
 |---|---|---|
 | `RATE_LIMITED` / `XHS_BLOCKED` | 停止退避 | **skill 自动冷却该账号**，你继续调用下一次即切到其它账号 |
-| `LOGIN_REQUIRED` | 调 auth_login | skill 跳过该账号，选下一个；全部失效时才提示 |
+| `LOGIN_REQUIRED` | 调 auth_login | skill 跳过该账号，检查原因；全部失效时才提示 |
 | `ALL_ACCOUNTS_COOLING`（本 skill 自定义） | — | 全部账号冷却中，建议 5-10 分钟后再试 |
 
 ## 示例
@@ -70,3 +71,50 @@ skill 钩子会在 agent 不感知的情况下轮询 `default`/`biz1`/`biz2` 三
 - **冷却期默认 10 分钟**（可由 `XHS_COOL_DOWN_MS` 环境变量覆盖）
 - **不兼容显式 auth_login**：扫码登录仍需手工指定 `accountId`
 - **服务端 concurrency=1 的限制不变**——轮询只降单账号打扰频率，不提升总吞吐
+
+## 登录态管理
+
+### 多账号登录态检查
+```javascript
+// 检查所有账号的登录状态
+auth_status({ accountId: "default", platform: "xhs" })
+auth_status({ accountId: "biz1", platform: "xhs" })
+auth_status({ accountId: "biz2", platform: "xhs" })
+```
+
+### 处理账号登录失效
+
+当某个账号返回 `LOGIN_REQUIRED` 时：
+1. Skill 钩子自动跳过该账号
+2. 选择下一个登录态有效的账号
+3. 如果全部账号都失效，提示用户：
+   ```
+   ⚠️ 所有小红书账号均未登录或已过期
+   
+   请逐个账号登录：
+   ./scripts/login.sh xhs default
+   ./scripts/login.sh xhs biz1
+   ./scripts/login.sh xhs biz2
+   
+   登录完成后继续抓取。
+   ```
+
+### ⚠️ 登录模式说明
+
+**重要：OpenClaw 服务运行在 Headless 模式（无法弹出浏览器）**
+
+登录需要切换到 Headed 模式，请使用登录脚本：
+```bash
+# 登录指定账号
+./scripts/login.sh xhs default
+./scripts/login.sh xhs biz1
+./scripts/login.sh xhs biz2
+
+# 如果不指定 accountId，默认登录 default
+./scripts/login.sh xhs
+```
+
+**登录态持久化：**
+- 登录态通过 Volume 挂载持久化
+- 7 天内自动缓存，不重复验证
+- 多账号共享同一个 Volume，切换模式不丢失

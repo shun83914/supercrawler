@@ -241,6 +241,31 @@ export function registerSkillTools(
   );
 
   server.registerTool(
+    'auth_cleanup',
+    {
+      description:
+        '清理过期平台的登录数据（cookies + 元数据）；默认只在过期超过 7 天后清理，可设置 force=true 强制清理',
+      inputSchema: {
+        accountId: z.string().optional(),
+        platform: z.enum(['xhs', 'douyin']).optional(),
+        force: z.boolean().optional(),
+      },
+    },
+    (args: unknown) => {
+      const {
+        accountId: id = 'default',
+        platform = 'xhs',
+        force = false,
+      } = args as {
+        accountId?: string;
+        platform?: 'xhs' | 'douyin';
+        force?: boolean;
+      };
+      return safe(() => auth.cleanupExpiredData(id, platform, force));
+    },
+  );
+
+  server.registerTool(
     'storage_peek',
     {
       description: '分页读取 JSONL 抓取结果文件（仅允许 OUTPUT_DIR 内）',

@@ -4,6 +4,17 @@
 
 set -e
 
+# 清理浏览器锁文件（防止异常退出后无法启动）
+echo "🔧 清理浏览器锁文件..."
+if [ -d "/data/profiles" ]; then
+  find /data/profiles -name "SingletonLock" -delete 2>/dev/null || true
+  find /data/profiles -name "SingletonSocket" -delete 2>/dev/null || true
+  echo "✅ 锁文件清理完成"
+else
+  echo "ℹ️  /data/profiles 目录不存在，跳过清理"
+fi
+echo ""
+
 # 检查是否需要启动 Xvfb（Headed 模式）
 if [ "$CLOAK_HEADLESS" = "false" ]; then
   echo "🖥️  检测到 CLOAK_HEADLESS=false，启动 Xvfb 虚拟显示器..."

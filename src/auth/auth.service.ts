@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { Cookie } from 'playwright-core';
 import type { AppConfig } from '../config/configuration';
 import { BrowserService } from '../browser/browser.service';
 import { PageFactoryService } from '../browser/page-factory.service';
 import type { AuthPlatform } from './dto/login.dto';
+import { LoginMetadataService, LoginMetadata } from './login-metadata.service';
 
 export interface LoginStatus {
   accountId: string;
@@ -13,6 +16,12 @@ export interface LoginStatus {
   userId?: string;
   nickname?: string;
   checkedAt: string;
+  // 扩展字段：用于区分不同失败场景
+  reason?: 'NEVER_LOGGED_IN' | 'LOGIN_EXPIRED' | 'LOGGED_OUT' | 'PROFILE_DELETED' | 'CLEANED_UP';
+  suggestion?: string;
+  lastLoginAt?: string;
+  expiredAt?: string;
+  cached?: boolean;
 }
 
 interface PlatformProfile {
@@ -40,12 +49,16 @@ const DOUYIN_LOGIN_COOKIE_KEYS = [
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private metadataService: LoginMetadataService;
 
   constructor(
     private readonly browser: BrowserService,
     private readonly pages: PageFactoryService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    const profileDir = this.config.get<string>('profileDir') || './data/profiles';
+    this.metadataService = new LoginMetadataService(profileDir);
+  }
 
   /**
    * 打开 headed 浏览器等待扫码登录；出现关键 cookie 即判定成功。
@@ -56,6 +69,10 @@ export class AuthService {
     platform: AuthPlatform = 'xhs',
   ): Promise<LoginStatus> {
     const profile = this.profile(platform);
+    
+    // 先清理旧的登录数据（如果有）
+    await this.cleanupExpiredData(accountId, platform, true);
+    
     const lease = await this.pages.acquire(accountId, {
       headless: false,
       ...(proxy ? { proxy } : {}),
@@ -70,7 +87,11 @@ export class AuthService {
       while (Date.now() < deadline) {
         if (await this.hasSessionCookie(context, profile)) {
           const status = await this.probeStatus(accountId, platform, context);
-          if (status.loggedIn) return status;
+          if (status.loggedIn) {
+            // 保存登录元数据
+            await this.saveLoginMetadata(accountId, platform, status);
+            return status;
+          }
         }
         await page.waitForTimeout(2000);
       }
@@ -81,15 +102,132 @@ export class AuthService {
   }
 
   /**
+   * 保存登录元数据
+   */
+  private async saveLoginMetadata(
+    accountId: string,
+    platform: AuthPlatform,
+    status: LoginStatus,
+  ): Promise<void> {
+    const now = new Date();
+
+    await this.metadataService.save(accountId, {
+      platform,
+      loginAt: now.toISOString(),
+      lastVerifiedAt: now.toISOString(),
+      userId: status.userId,
+      nickname: status.nickname,
+      status: 'valid',
+    });
+
+    this.logger.log(`Saved login metadata for ${accountId}/${platform}`);
+  }
+
+  /**
    * 无头探测登录态（不触发扫码流程）。
+   * 支持元数据缓存和过期检测。
    */
   async checkStatus(
     accountId: string,
     platform: AuthPlatform = 'xhs',
   ): Promise<LoginStatus> {
+    const profileDir = this.config.get<string>('profileDir') || './data/profiles';
+    const profilePath = path.join(profileDir, accountId);
+
+    // 1. 检查 profiles 目录是否存在
+    if (!fs.existsSync(profilePath)) {
+      return {
+        accountId,
+        platform,
+        loggedIn: false,
+        reason: 'PROFILE_DELETED',
+        suggestion: '登录数据已被删除，请重新扫码登录',
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    // 2. 读取元数据（快速判断，不启动浏览器）
+    const metadata = await this.metadataService.read(accountId, platform);
+
+    if (!metadata) {
+      return {
+        accountId,
+        platform,
+        loggedIn: false,
+        reason: 'NEVER_LOGGED_IN',
+        suggestion: '请调用 POST /api/auth/login 进行扫码登录',
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    // 3. 如果已确认过期，检查是否需要清理
+    if (metadata.status === 'expired') {
+      if (this.metadataService.isExpiredForSevenDays(metadata)) {
+        // 过期超过 7 天，自动清理
+        await this.cleanupExpiredData(accountId, platform);
+        return {
+          accountId,
+          platform,
+          loggedIn: false,
+          reason: 'CLEANED_UP',
+          suggestion: '过期登录数据已清理，请重新扫码登录',
+          checkedAt: new Date().toISOString(),
+        };
+      }
+
+      return {
+        accountId,
+        platform,
+        loggedIn: false,
+        reason: 'LOGIN_EXPIRED',
+        lastLoginAt: metadata.loginAt,
+        expiredAt: metadata.lastFailedAt,
+        suggestion: `登录已过期（${metadata.loginAt.slice(0, 10)} 登录），请重新扫码登录`,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    // 4. 如果距上次验证 < 7天，返回缓存结果
+    if (this.metadataService.isWithinCacheTime(metadata)) {
+      return {
+        accountId,
+        platform,
+        loggedIn: true,
+        userId: metadata.userId,
+        nickname: metadata.nickname,
+        cached: true,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    // 5. 实际探测（启动浏览器）
     const lease = await this.pages.acquire(accountId, { headless: true });
     try {
-      return await this.probeStatus(accountId, platform, lease.context);
+      const status = await this.probeStatus(accountId, platform, lease.context);
+
+      // 6. 更新元数据
+      if (status.loggedIn) {
+        await this.metadataService.update(accountId, platform, {
+          status: 'valid',
+          lastVerifiedAt: new Date().toISOString(),
+          userId: status.userId || metadata.userId,
+          nickname: status.nickname || metadata.nickname,
+        });
+      } else {
+        // 探测失败 = 登录过期
+        await this.metadataService.update(accountId, platform, {
+          status: 'expired',
+          lastFailedAt: new Date().toISOString(),
+          lastVerifiedAt: new Date().toISOString(),
+        });
+
+        status.reason = 'LOGIN_EXPIRED';
+        status.suggestion = '登录已过期，请重新扫码登录';
+        status.lastLoginAt = metadata.loginAt;
+        status.expiredAt = status.checkedAt;
+      }
+
+      return status;
     } finally {
       await lease.release();
     }
@@ -98,6 +236,64 @@ export class AuthService {
   async logout(accountId: string): Promise<void> {
     await this.browser.closeContext(accountId);
     this.logger.log(`[logout ${accountId}] context closed, profile preserved`);
+  }
+
+  /**
+   * 清理过期平台的登录数据
+   * 
+   * @param accountId 账号 ID
+   * @param platform 平台
+   * @param force 是否强制清理（忽略时间限制）
+   */
+  async cleanupExpiredData(
+    accountId: string,
+    platform: AuthPlatform,
+    force = false,
+  ): Promise<{ cleaned: boolean; reason?: string }> {
+    const metadata = await this.metadataService.read(accountId, platform);
+
+    if (!metadata) {
+      return { cleaned: false, reason: 'No metadata found' };
+    }
+
+    if (metadata.status !== 'expired' && !force) {
+      return { cleaned: false, reason: 'Not expired' };
+    }
+
+    // 检查是否过期超过 7 天
+    if (!this.metadataService.isExpiredForSevenDays(metadata) && !force) {
+      return { cleaned: false, reason: 'Not old enough to cleanup' };
+    }
+
+    // 清理 cookies 和登录数据
+    const profileDir = this.config.get<string>('profileDir') || './data/profiles';
+    const profilePath = path.join(profileDir, accountId, 'Default');
+
+    try {
+      const filesToClean = [
+        'Cookies',
+        'Cookies-journal',
+        'Login Data',
+        'Login Data For Account',
+      ];
+
+      for (const file of filesToClean) {
+        const filePath = path.join(profilePath, file);
+        if (fs.existsSync(filePath)) {
+          await fs.promises.unlink(filePath);
+          this.logger.log(`Cleaned up ${file}`);
+        }
+      }
+
+      // 删除元数据文件
+      await this.metadataService.delete(accountId);
+
+      this.logger.log(`Cleaned up expired login data for ${accountId}/${platform}`);
+      return { cleaned: true };
+    } catch (err) {
+      this.logger.error(`Cleanup failed: ${err.message}`);
+      return { cleaned: false, reason: err.message };
+    }
   }
 
   private profile(platform: AuthPlatform): PlatformProfile {

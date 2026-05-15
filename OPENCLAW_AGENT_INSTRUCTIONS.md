@@ -504,6 +504,8 @@ supercrawler:meituan_scrape_promotion_stats
 # 阶段 4：扫码登录（首次必须）
 
 > **🎯 重要**：需要分别登录小红书和抖音两个平台！
+> **🤖 Agent 主动执行**：Agent 会启动 Headed 容器、获取二维码并展示给用户，用户只需在飞书中扫码即可。
+> **💬 交互方式**：Agent 先询问用户是否准备好登录小红书，用户确认后，Agent 展示二维码，等待扫码完成后再继续抖音登录。
 
 ## Step 9: 检查登录状态
 
@@ -517,14 +519,11 @@ supercrawler:meituan_scrape_promotion_stats
 })
 ```
 
-**预期输出（未登录）：**
-```json
-{
-  "accountId": "default",
-  "platform": "xhs",
-  "loggedIn": false
-}
-```
+**返回结果：**
+- `{ loggedIn: true, cached: true }` - ✅ 已登录（7天内验证过）
+- `{ loggedIn: false, reason: "NEVER_LOGGED_IN" }` - ❌ 从未登录
+- `{ loggedIn: false, reason: "LOGIN_EXPIRED" }` - ❌ 登录过期
+- `{ loggedIn: false, reason: "CLEANED_UP" }` - ❌ 数据已清理
 
 ### 9.2 检查抖音登录
 
@@ -536,291 +535,347 @@ supercrawler:meituan_scrape_promotion_stats
 })
 ```
 
-**预期输出（未登录）：**
-```json
-{
-  "accountId": "default",
-  "platform": "douyin",
-  "loggedIn": false
-}
-```
-
 **如果任一平台 `loggedIn: false`，需要执行 Step 10 扫码登录。**
 
 ---
 
-## Step 10: 扫码登录
+## Step 10: Agent 引导扫码登录
 
-> **⚠️ 注意**：此步骤需要你（用户）参与扫码。
-> **需要分别登录小红书和抖音！**
+> **⚠️ 重要说明**：
+> - 用户只在飞书中与 Agent 对话，**无法在终端执行命令**
+> - Agent 需要**主动执行所有操作**，用户只需扫码
+> - Agent 会按顺序引导：小红书 → 抖音
 
-### 10.1 重启为 Headed 模式
+### 10.1 登录小红书
+
+**如果小红书未登录，Agent 执行以下步骤：**
+
+#### Step 10.1.1: 询问用户
+
+**Agent 在飞书中发送：**
+
+```
+📱 小红书登录
+
+检测到小红书账号未登录，需要扫码登录。
+
+请准备好手机上的小红书 App，回复"开始"后我会展示二维码。
+```
+
+**等待用户回复"开始"或"准备好了"。**
+
+---
+
+#### Step 10.1.2: 启动 Headed 容器
+
+**Agent 执行：**
 
 ```bash
-# 停止当前容器
-docker stop supercrawler
-docker rm supercrawler
-
-# 判断架构
-ARCH=$(uname -m)
-if [ "$ARCH" = "arm64" ]; then
-  IMAGE="ghcr.io/shun83914/supercrawler:latest-debian-arm64"
-else
-  IMAGE="ghcr.io/shun83914/supercrawler:latest-debian-amd64"
-fi
-
-# 启动 Headed 模式（自动启动 Xvfb 虚拟显示器）
-docker run -d \
-  --name supercrawler \
-  -p 5510:5510 \
+docker run -d --name supercrawler-xhs-login -p 5520:5510 \
   -v ~/supercrawler/data:/data \
   -e CLOAK_HEADLESS=false \
-  -e CLOAK_TIMEZONE=Asia/Shanghai \
-  -e CLOAK_LOCALE=zh-CN \
-  $IMAGE
+  -e DISPLAY=:99 \
+  ghcr.io/shun83914/supercrawler:latest-debian-arm64
+```
 
-echo "✅ 已重启为 Headed 模式（支持扫码）"
+**等待 5 秒让容器启动：**
+```bash
+sleep 5
+```
+
+---
+
+#### Step 10.1.3: 触发登录
+
+**Agent 执行：**
+
+```bash
+curl -s -X POST http://localhost:5520/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"accountId":"default","platform":"xhs"}'
+```
+
+**等待 3 秒让页面加载：**
+```bash
 sleep 3
 ```
 
-### 10.2 登录小红书
+---
 
-**使用 MCP 工具（推荐）：**
+#### Step 10.1.4: 获取二维码并展示
+
+**Agent 执行：**
+
+```bash
+# 获取二维码（Base64）
+QR_DATA=$(curl -s "http://localhost:5520/api/auth/qr-screenshot?platform=xhs" \
+  | jq -r '.qrCode')
+
+# 提取 Base64 部分
+QR_BASE64=$(echo "$QR_DATA" | sed 's/data:image\/png;base64,//')
+
+# 保存到临时文件
+echo "$QR_BASE64" | base64 -d > /tmp/qr-xhs.png
 ```
-调用: supercrawler:auth_login({
+
+**Agent 在飞书中发送二维码图片：**
+
+```
+📱 请扫描小红书二维码
+
+[发送 /tmp/qr-xhs.png 图片]
+
+请使用小红书 App 扫描上方二维码。
+扫码完成后回复"已完成"。
+```
+
+---
+
+#### Step 10.1.5: 等待扫码并检测
+
+**Agent 循环检测（每 2 秒一次）：**
+
+```bash
+for i in {1..60}; do  # 最多等待 120 秒
+  STATUS=$(curl -s "http://localhost:5520/api/auth/status?accountId=default&platform=xhs")
+  LOGGED_IN=$(echo "$STATUS" | jq -r '.data.loggedIn')
+  
+  if [ "$LOGGED_IN" = "true" ]; then
+    echo "✅ 登录成功！"
+    break
+  fi
+  
+  sleep 2
+done
+```
+
+**如果 120 秒超时：**
+```
+⏰ 登录超时
+
+二维码已过期，是否需要重新生成？
+回复"是"我会重新展示二维码。
+```
+
+**如果登录成功：**
+```
+✅ 小红书登录成功！
+
+接下来需要登录抖音，请准备好抖音 App。
+回复"开始"后我会展示抖音登录二维码。
+```
+
+---
+
+#### Step 10.1.6: 清理容器
+
+```bash
+docker stop supercrawler-xhs-login && docker rm supercrawler-xhs-login
+```
+
+---
+
+### 10.2 登录抖音
+
+**用户确认开始抖音登录后，Agent 执行以下步骤：**
+
+#### Step 10.2.1: 启动 Headed 容器
+
+**Agent 执行：**
+
+```bash
+docker run -d --name supercrawler-douyin-login -p 5530:5510 \
+  -v ~/supercrawler/data:/data \
+  -e CLOAK_HEADLESS=false \
+  -e DISPLAY=:99 \
+  ghcr.io/shun83914/supercrawler:latest-debian-arm64
+```
+
+**等待 5 秒：**
+```bash
+sleep 5
+```
+
+---
+
+#### Step 10.2.2: 触发登录
+
+**Agent 执行：**
+
+```bash
+curl -s -X POST http://localhost:5530/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"accountId":"default","platform":"douyin"}'
+```
+
+**等待 3 秒：**
+```bash
+sleep 3
+```
+
+---
+
+#### Step 10.2.3: 获取二维码并展示
+
+**Agent 执行：**
+
+```bash
+QR_DATA=$(curl -s "http://localhost:5530/api/auth/qr-screenshot?platform=douyin" \
+  | jq -r '.qrCode')
+QR_BASE64=$(echo "$QR_DATA" | sed 's/data:image\/png;base64,//')
+echo "$QR_BASE64" | base64 -d > /tmp/qr-douyin.png
+```
+
+**Agent 在飞书中发送：**
+
+```
+📱 请扫描抖音二维码
+
+[发送 /tmp/qr-douyin.png 图片]
+
+请使用抖音 App 扫描上方二维码。
+扫码完成后回复"已完成"。
+```
+
+---
+
+#### Step 10.2.4: 等待扫码并检测
+
+**Agent 循环检测（每 2 秒一次）：**
+
+```bash
+for i in {1..60}; do
+  STATUS=$(curl -s "http://localhost:5530/api/auth/status?accountId=default&platform=douyin")
+  LOGGED_IN=$(echo "$STATUS" | jq -r '.data.loggedIn')
+  
+  if [ "$LOGGED_IN" = "true" ]; then
+    echo "✅ 登录成功！"
+    break
+  fi
+  
+  sleep 2
+done
+```
+
+---
+
+#### Step 10.2.5: 清理容器
+
+```bash
+docker stop supercrawler-douyin-login && docker rm supercrawler-douyin-login
+```
+
+---
+
+#### Step 10.2.6: 登录完成
+
+**Agent 发送：**
+
+```
+✅ 抖音登录成功！
+
+🎉 双平台登录完成！
+- ✅ 小红书：已登录
+- ✅ 抖音：已登录
+
+现在可以开始使用抓取功能了！
+请告诉我你需要抓取什么内容。
+```
+
+---
+
+## Step 11: 验证登录态持久化
+
+**两个平台都登录成功后，Agent 执行验证：**
+
+### 11.1 验证小红书
+
+**Agent 执行：**
+```
+调用: supercrawler:auth_status({
   accountId: "default",
   platform: "xhs"
 })
 ```
 
-**或者用 HTTP API 临时触发：**
-```bash
-curl -s -X POST "http://localhost:5510/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"accountId":"default","platform":"xhs"}' &
-
-echo "⌛ 等待小红书浏览器加载二维码..."
-sleep 8
+**预期输出：**
+```json
+{
+  "data": {
+    "accountId": "default",
+    "platform": "xhs",
+    "loggedIn": true,
+    "userId": "123456789",
+    "nickname": "用户昵称",
+    "checkedAt": "2026-05-15T10:30:00.000Z"
+  }
+}
 ```
 
-### 10.3 获取小红书二维码截图
+### 11.2 验证抖音
 
-**使用 HTTP API（临时）：**
-```bash
-QR_RESPONSE=$(curl -s "http://localhost:5510/api/auth/qr-screenshot?platform=xhs")
-SUCCESS=$(echo "$QR_RESPONSE" | jq -r '.success')
-
-if [ "$SUCCESS" = "true" ]; then
-  QR_BASE64=$(echo "$QR_RESPONSE" | jq -r '.qrCode')
-  QR_DATA=$(echo "$QR_BASE64" | sed 's/data:image\/png;base64,//')
-  echo "$QR_DATA" | base64 -d > /tmp/qr-xhs.png
-  
-  echo "✅ 小红书二维码已保存到: /tmp/qr-xhs.png"
-  
-  # macOS 打开图片
-  if [[ "$(uname)" == "Darwin" ]]; then
-    open /tmp/qr-xhs.png
-  fi
-  
-  echo ""
-  echo "========================================"
-  echo "📱 请使用小红书 App 扫码登录"
-  echo "========================================"
-  echo ""
-  echo "二维码路径: /tmp/qr-xhs.png"
-  echo ""
-  echo "⏳ 等待你扫码...（扫码后告诉我'已扫码小红书'）"
-else
-  echo "❌ 获取小红书二维码失败"
-  exit 1
-fi
+**Agent 执行：**
 ```
-
-### 10.4 等待用户扫码小红书
-
-**告诉用户：**
-```
-请打开 /tmp/qr-xhs.png 查看二维码，使用小红书 App 扫码。
-扫码完成后告诉我"已扫码小红书"，我会继续检测登录状态。
-```
-
-**用户说"已扫码小红书"后，执行：**
-
-```bash
-echo "🔍 检测小红书登录状态..."
-
-# 轮询检测（最多 60 秒）
-for i in {1..12}; do
-  STATUS=$(curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=xhs")
-  LOGGED=$(echo "$STATUS" | jq -r '.loggedIn')
-  
-  if [ "$LOGGED" = "true" ]; then
-    echo "✅ 小红书登录成功！"
-    echo "$STATUS" | jq .
-    break
-  fi
-  
-  echo "⌛ 等待小红书登录... ($i/12)"
-  sleep 5
-done
-
-if [ "$LOGGED" != "true" ]; then
-  echo "❌ 小红书登录超时，请重新扫码"
-  exit 1
-fi
-```
-
-### 10.5 登录抖音
-
-**小红书登录成功后，继续登录抖音：**
-
-echo ""
-echo "========================================"
-echo "🎵 现在登录抖音"
-echo "========================================"
-echo ""
-
-**使用 MCP 工具（推荐）：**
-```
-调用: supercrawler:auth_login({
+调用: supercrawler:auth_status({
   accountId: "default",
   platform: "douyin"
 })
 ```
 
-**或者用 HTTP API 临时触发：**
-```bash
-curl -s -X POST "http://localhost:5510/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"accountId":"default","platform":"douyin"}' &
-
-echo "⌛ 等待抖音浏览器加载二维码..."
-sleep 8
-```
-
-### 10.6 获取抖音二维码截图
-
-```bash
-QR_RESPONSE=$(curl -s "http://localhost:5510/api/auth/qr-screenshot?platform=douyin")
-SUCCESS=$(echo "$QR_RESPONSE" | jq -r '.success')
-
-if [ "$SUCCESS" = "true" ]; then
-  QR_BASE64=$(echo "$QR_RESPONSE" | jq -r '.qrCode')
-  QR_DATA=$(echo "$QR_BASE64" | sed 's/data:image\/png;base64,//')
-  echo "$QR_DATA" | base64 -d > /tmp/qr-douyin.png
-  
-  echo "✅ 抖音二维码已保存到: /tmp/qr-douyin.png"
-  
-  # macOS 打开图片
-  if [[ "$(uname)" == "Darwin" ]]; then
-    open /tmp/qr-douyin.png
-  fi
-  
-  echo ""
-  echo "========================================"
-  echo "📱 请使用抖音 App 扫码登录"
-  echo "========================================"
-  echo ""
-  echo "二维码路径: /tmp/qr-douyin.png"
-  echo ""
-  echo "⏳ 等待你扫码...（扫码后告诉我'已扫码抖音'）"
-else
-  echo "❌ 获取抖音二维码失败"
-  exit 1
-fi
-```
-
-### 10.7 等待用户扫码抖音
-
-**告诉用户：**
-```
-请打开 /tmp/qr-douyin.png 查看二维码，使用抖音 App 扫码。
-扫码完成后告诉我"已扫码抖音"，我会继续检测登录状态。
-```
-
-**用户说"已扫码抖音"后，执行：**
-
-```bash
-echo "🔍 检测抖音登录状态..."
-
-# 轮询检测（最多 60 秒）
-for i in {1..12}; do
-  STATUS=$(curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=douyin")
-  LOGGED=$(echo "$STATUS" | jq -r '.loggedIn')
-  
-  if [ "$LOGGED" = "true" ]; then
-    echo "✅ 抖音登录成功！"
-    echo "$STATUS" | jq .
-    break
-  fi
-  
-  echo "⌛ 等待抖音登录... ($i/12)"
-  sleep 5
-done
-
-if [ "$LOGGED" != "true" ]; then
-  echo "❌ 抖音登录超时，请重新扫码"
-  exit 1
-fi
-```
-
-### 10.8 切换回 Headless 模式
-
-**两个平台都登录成功后，切换回 Headless 模式：**
-
-```bash
-# 停止 Headed 容器
-docker stop supercrawler
-docker rm supercrawler
-
-# 重新启动为 Headless 模式
-ARCH=$(uname -m)
-if [ "$ARCH" = "arm64" ]; then
-  IMAGE="ghcr.io/shun83914/supercrawler:latest-debian-arm64"
-else
-  IMAGE="ghcr.io/shun83914/supercrawler:latest-debian-amd64"
-fi
-
-docker run -d \
-  --name supercrawler \
-  -p 5510:5510 \
-  -v ~/supercrawler/data:/data \
-  -e CLOAK_HEADLESS=true \
-  -e CLOAK_TIMEZONE=Asia/Shanghai \
-  -e CLOAK_LOCALE=zh-CN \
-  $IMAGE
-
-echo "✅ 已切换回 Headless 模式（高效抓取）"
-sleep 3
-
-# 验证小红书登录态持久化
-echo "🔍 检查小红书登录态:"
-curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=xhs" | jq .
-
-echo ""
-echo "🔍 检查抖音登录态:"
-curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=douyin" | jq .
-```
-
 **预期输出：**
 ```json
 {
-  "accountId": "default",
-  "platform": "xhs",
-  "loggedIn": true,
-  "userId": "xxx",
-  "nickname": "xxx"
-}
-{
-  "accountId": "default",
-  "platform": "douyin",
-  "loggedIn": true,
-  "userId": "xxx",
-  "nickname": "xxx"
+  "data": {
+    "accountId": "default",
+    "platform": "douyin",
+    "loggedIn": true,
+    "userId": "987654321",
+    "nickname": "抖音用户",
+    "checkedAt": "2026-05-15T10:31:00.000Z"
+  }
 }
 ```
 
-**两个平台的登录态都已持久化！** 以后无需重新扫码（除非删除 `~/supercrawler/data/profiles`）。
+### 11.3 告知用户
+
+**Agent 发送：**
+
+```
+✅ 登录态验证成功！
+
+登录信息已持久化保存，下次启动服务时会自动恢复。
+
+📊 登录状态：
+- 小红书：✅ 已登录（用户：xxx）
+- 抖音：✅ 已登录（用户：xxx）
+
+🎉 所有配置已完成！现在可以开始使用抓取功能了。
+```
+
+---
+
+### 💡 登录态管理说明
+
+**Agent 需要了解：**
+
+1. **登录态持久化**
+   - 登录信息保存在 `/data/profiles/` 目录
+   - 通过 Docker Volume 挂载，容器重启后仍然有效
+   - 7 天内不需要重新验证（缓存机制）
+
+2. **自动清理**
+   - 登录过期 ≥ 7 天会自动清理
+   - 用户下次登录时会重新扫码
+
+3. **检查登录态**
+   - 每次抓取前自动调用 `auth_status`
+   - 如果未登录，引导用户重新扫码
+
+**✅ 登录态已持久化！**
+- 通过 Volume 挂载保存（`~/supercrawler/data/profiles`）
+- 7 天内自动缓存，不重复验证
+- 切换 Headless/Headed 模式不丢失
+- 除非手动删除 profiles 目录，否则无需重新登录
 
 ---
 
@@ -839,6 +894,7 @@ curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=douyin
 | `supercrawler:health` | 健康检查 | 检查服务是否在线 |
 | `supercrawler:auth_status` | 检查登录 | `{accountId: "default", platform: "xhs"}` |
 | `supercrawler:auth_login` | 扫码登录 | `{accountId: "default", platform: "xhs"}` |
+| `supercrawler:auth_cleanup` | 清理过期数据 | `{accountId: "default", platform: "xhs", force: false}` |
 | `supercrawler:xhs_scrape_search` | 小红书搜索 | `{keywords: ["跑鞋"], sort: "popular", limit: 10}` |
 | `supercrawler:xhs_scrape_notes` | 抓取笔记 | `{noteIds: ["65f1a2b3c4d5e6f"]}` |
 | `supercrawler:xhs_scrape_user` | 抓取用户 | `{userId: "5a3b8c9d2e1f", noteLimit: 20}` |
@@ -1454,3 +1510,89 @@ docker cp supercrawler:/tmp/qr.png ./qr.png
 ---
 
 **🎉 完成！现在你可以把完整指令复制给 OpenClaw Main Agent 了！**
+
+---
+
+## 💡 重要：飞书交互场景说明
+
+**用户在飞书中与 Agent 对话，无法执行终端命令！**
+
+### Agent 需要主动执行所有操作：
+
+```
+阶段 4 登录流程：
+
+1. Agent 检查登录状态
+   ↓
+2. Agent 在飞书中询问："检测到小红书未登录，请准备好手机，回复'开始'后我会展示二维码"
+   ↓
+3. 用户回复："开始"
+   ↓
+4. Agent 执行：
+   - 启动 Headed 容器
+   - 触发登录
+   - 获取二维码
+   - 在飞书中发送二维码图片
+   ↓
+5. Agent 在飞书中说："请扫描上方二维码，完成后回复'已完成'"
+   ↓
+6. 用户扫码并回复："已完成"
+   ↓
+7. Agent 循环检测登录状态
+   ↓
+8. Agent 在飞书中说："✅ 小红书登录成功！接下来需要登录抖音..."
+   ↓
+9. 重复步骤 2-8 完成抖音登录
+   ↓
+10. Agent 在飞书中说："🎉 双平台登录完成！现在可以开始使用抓取功能了"
+```
+
+### 关键原则：
+
+**✅ 正确做法：**
+- Agent 主动执行所有技术操作
+- 用户只需在飞书中回复简单的确认消息
+- Agent 展示二维码图片，用户扫码
+
+**❌ 错误做法：**
+- 让用户执行 shell 命令（`./scripts/login.sh xhs`）
+- 让用户自己启动容器
+- 让用户手动调用 API
+
+### 用户交互示例：
+
+```
+Agent: 📱 小红书登录
+
+检测到小红书账号未登录，需要扫码登录。
+
+请准备好手机上的小红书 App，回复"开始"后我会展示二维码。
+
+---
+
+用户: 开始
+
+---
+
+Agent: [发送二维码图片]
+
+📱 请扫描小红书二维码
+
+请使用小红书 App 扫描上方二维码。
+扫码完成后回复"已完成"。
+
+---
+
+用户: 已完成
+
+---
+
+Agent: ✅ 小红书登录成功！
+
+接下来需要登录抖音，请准备好抖音 App。
+回复"开始"后我会展示抖音登录二维码。
+```
+
+---
+
+**🚀 记住：用户只在飞书中对话，Agent 需要完成所有技术操作！**

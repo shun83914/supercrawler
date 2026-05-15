@@ -77,27 +77,30 @@ src/
 
 ## 3. 快速开始
 
-### 方式 A：一键初始化（推荐，首次使用）
+### 方式 A：快速启动（推荐）
 
 ```bash
 git clone <repo-url> && cd supercrawler
-npm run init
-```
 
-`npm run init` 会自动完成：
-1. `npm install` 安装依赖
-2. `npm run build` 构建（如 dist 缺失）
-3. 生成 `SUPERCRAWLER_TOKEN` 并写入 `.env`
-4. 后台启动服务，等待就绪
-5. 引导扫码登录（弹出浏览器，用小红书 App 扫码）
-6. 打印下一步命令（服务保留在后台运行）
+# 1. 安装依赖
+npm install
 
-支持参数：
-```bash
-./scripts/init-first-run.sh --account=work01      # 指定 accountId
-./scripts/init-first-run.sh --port=3001           # 指定端口
-./scripts/init-first-run.sh --timeout=180         # 扫码等待秒数
-./scripts/init-first-run.sh --skip-build          # 复用已有 dist
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env，设置 API_TOKEN=xxxxx
+
+# 3. 生成鉴权 token
+npm run gen-token
+
+# 4. 构建
+npm run build
+
+# 5. 启动服务
+npm run start:dev
+
+# 6. 登录（小红书 + 抖音）
+./scripts/login.sh xhs
+./scripts/login.sh douyin
 ```
 
 ### 方式 B：手动分步
@@ -125,9 +128,34 @@ npm run start:dev          # HTTP 模式，端口由 .env 的 PORT 控制（默�
 #   http://localhost:5510/docs   (Swagger)
 ```
 
-### 首次扫码登录
+### 运维工具
+
+| 命令 | 用途 |
+|------|------|
+| `npm run gen-token` | 生成 token 并写入 .env |
+| `npm run accounts:status` | 表格输出所有账号的登录态 |
+| `npm run accounts:status -- --json` | JSON 输出（CI 巡检） |
+| `./scripts/login.sh xhs` | 小红书登录 |
+| `./scripts/login.sh douyin` | 抖音登录 |
+| `./scripts/login.sh xhs biz1` | 多账号登录 |
 
 抓取前必须先登录至少 1 个账号：
+
+**推荐使用登录脚本（自动处理 Headed/Headless 切换）：**
+```bash
+# 小红书登录
+./scripts/login.sh xhs
+
+# 抖音登录
+./scripts/login.sh douyin
+
+# 多账号登录
+./scripts/login.sh xhs default
+./scripts/login.sh xhs biz1
+./scripts/login.sh douyin default
+```
+
+**或者手动登录：**
 
 **小红书登录：**
 ```bash
@@ -148,6 +176,32 @@ curl -X POST http://localhost:${PORT:-5510}/api/auth/login \
 ```
 
 > 多账号场景：重复上述命令，把 `accountId` 换成 `biz1`/`biz2`/... 即可，每个账号独立持久化。
+
+### 登录态管理
+
+**检查登录状态：**
+```bash
+curl -s "http://localhost:${PORT:-5510}/api/auth/status?accountId=default&platform=xhs" | jq .
+```
+
+返回结果：
+- `{ loggedIn: true, cached: true }` - 已登录（7天内验证过）
+- `{ loggedIn: false, reason: "NEVER_LOGGED_IN" }` - 从未登录
+- `{ loggedIn: false, reason: "LOGIN_EXPIRED" }` - 登录过期
+- `{ loggedIn: false, reason: "CLEANED_UP" }` - 数据已清理
+
+**清理过期数据：**
+```bash
+curl -X POST "http://localhost:${PORT:-5510}/api/auth/cleanup" \
+     -H "Content-Type: application/json" \
+     -d '{"accountId":"default","platform":"xhs","force":false}'
+```
+
+**登录态持久化：**
+- 登录态通过 Volume 挂载保存（`./data/profiles`）
+- 7 天内自动缓存，不重复验证
+- 切换 Headless/Headed 模式不丢失
+- 除非手动删除 profiles 目录，否则无需重新登录
 
 ### Docker
 
