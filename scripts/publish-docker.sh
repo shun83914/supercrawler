@@ -72,90 +72,124 @@ if $PUSH_TO_DOCKERHUB; then
 fi
 
 # ========== 检查 buildx 是否可用 ==========
-if ! docker buildx version >/dev/null 2>&1; then
-  echo "❌ 需要安装 Docker Buildx 插件"
-  echo "   安装指南: https://docs.docker.com/build/install-buildx/"
-  exit 1
-fi
+# 不再使用 buildx，改为分别构建两个架构
+echo "ℹ️  将分别构建 amd64 和 arm64 架构镜像"
 
-# 创建或使用 multi-platform builder
-echo "🔧 初始化 Buildx builder..."
-# 如果 builder 不存在则创建，否则重用
-if ! docker buildx inspect supercrawler-builder >/dev/null 2>&1; then
-  docker buildx create --name supercrawler-builder --use
-  echo "   ✅ 创建新 builder: supercrawler-builder"
-else
-  docker buildx use supercrawler-builder
-  echo "   ✅ 使用已有 builder: supercrawler-builder"
-fi
-
-# 启动 builder（如果需要）
-docker buildx inspect --bootstrap supercrawler-builder >/dev/null 2>&1
-
-# ========== 构建多架构镜像 ==========
+# ========== 构建镜像（分别构建两个架构） ==========
 if $DEBIAN_ONLY; then
-  echo "🔨 构建 Debian 版本多架构镜像 (linux/amd64, linux/arm64)..."
+  echo "🔨 构建 Debian 版本镜像..."
   DOCKERFILE="Dockerfile.debian"
   TAG_SUFFIX="-debian"
 else
-  echo "🔨 构建 Alpine 版本多架构镜像 (linux/amd64, linux/arm64)..."
+  echo "🔨 构建 Alpine 版本镜像..."
   DOCKERFILE="Dockerfile"
   TAG_SUFFIX=""
 fi
 
-# 构建目标 tags
-BUILD_TAGS=()
-if $PUSH_TO_DOCKERHUB && [[ -n "$DOCKERHUB_USER" ]]; then
-  for tag in "${TAGS[@]}"; do
-    BUILD_TAGS+=("-t" "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}")
-  done
+# 获取当前架构
+CURRENT_ARCH=$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)
+if [[ "$CURRENT_ARCH" == "x86_64" ]]; then
+  CURRENT_ARCH="amd64"
+elif [[ "$CURRENT_ARCH" == "aarch64" || "$CURRENT_ARCH" == "arm64" ]]; then
+  CURRENT_ARCH="arm64"
 fi
 
-if $PUSH_TO_GHCR && [[ -n "$GHCR_USER" ]]; then
-  for tag in "${TAGS[@]}"; do
-    BUILD_TAGS+=("-t" "ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}")
-  done
-fi
+echo "📊 当前架构: $CURRENT_ARCH"
 
-# 构建命令
-if $DRY_RUN; then
-  echo "   [Dry run] 构建以下 tags:"
-  for tag in "${TAGS[@]}"; do
-    [[ -n "$DOCKERHUB_USER" ]] && echo "     - ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}"
-    [[ -n "$GHCR_USER" ]] && echo "     - ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}"
-  done
+# 构建目标架构列表
+TARGET_ARCHS=("amd64" "arm64")
+
+for ARCH in "${TARGET_ARCHS[@]}"; do
   echo ""
-  echo "   执行命令:"
-  echo "   docker buildx build --platform linux/amd64,linux/arm64 -f ${DOCKERFILE} ${BUILD_TAGS[*]} --push ."
-else
-  docker buildx build \
-    --platform linux/amd64,linux/arm64 \
-    -f "$DOCKERFILE" \
-    "${BUILD_TAGS[@]}" \
-    --push \
-    --pull=false \
-    .
-fi
-
-if [[ $? -ne 0 ]]; then
-  echo "❌ 构建失败"
-  exit 1
-fi
-
-echo "✅ 构建成功"
+  echo "========================================"
+  echo "🔨 构建架构: linux/$ARCH"
+  echo "========================================"
+  
+  # 生成临时标签（带架构后缀）
+  TEMP_TAGS=()
+  if $PUSH_TO_DOCKERHUB && [[ -n "$DOCKERHUB_USER" ]]; then
+    for tag in "${TAGS[@]}"; do
+      TEMP_TAGS+=("-t" "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}")
+    done
+  fi
+  
+  if $PUSH_TO_GHCR && [[ -n "$GHCR_USER" ]]; then
+    for tag in "${TAGS[@]}"; do
+      TEMP_TAGS+=("-t" "ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}")
+    done
+  fi
+  
+  if $DRY_RUN; then
+    echo "   [Dry run] 将构建以下 tags:"
+    for tag in "${TAGS[@]}"; do
+      [[ -n "$DOCKERHUB_USER" ]] && echo "     - ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}"
+      [[ -n "$GHCR_USER" ]] && echo "     - ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}"
+    done
+  else
+    # 构建当前架构的镜像
+    echo "   开始构建 linux/$ARCH..."
+    docker build \
+      -f "$DOCKERFILE" \
+      "${TEMP_TAGS[@]}" \
+      --platform "linux/$ARCH" \
+      .
+    
+    if [[ $? -ne 0 ]]; then
+      echo "❌ 构建 linux/$ARCH 失败"
+      exit 1
+    fi
+    
+    echo "   ✅ linux/$ARCH 构建成功"
+    
+    # 推送到仓库
+    echo "   📤 推送 linux/$ARCH 镜像..."
+    if $PUSH_TO_DOCKERHUB && [[ -n "$DOCKERHUB_USER" ]]; then
+      for tag in "${TAGS[@]}"; do
+        echo "     推送: ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}"
+        docker push "${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}"
+        if [[ $? -ne 0 ]]; then
+          echo "❌ 推送 ${DOCKERHUB_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH} 失败"
+          exit 1
+        fi
+      done
+    fi
+    
+    if $PUSH_TO_GHCR && [[ -n "$GHCR_USER" ]]; then
+      for tag in "${TAGS[@]}"; do
+        echo "     推送: ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}"
+        docker push "ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH}"
+        if [[ $? -ne 0 ]]; then
+          echo "❌ 推送 ghcr.io/${GHCR_USER}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-${ARCH} 失败"
+          exit 1
+        fi
+      done
+    fi
+    
+    echo "   ✅ linux/$ARCH 推送完成"
+  fi
+done
 
 echo ""
+echo "========================================"
 if $DRY_RUN; then
   echo "✅ Dry run 完成（未推送）"
 else
-  echo "✅ 推送完成"
+  echo "✅ 所有架构构建并推送完成"
 fi
 
 echo ""
 echo "📝 用户使用方式："
 echo ""
 echo "  # Docker Hub"
-echo "  docker pull ${DOCKERHUB_USER:-<username>}/${DOCKERHUB_REPO}:latest"
-echo ""
+for tag in "${TAGS[@]}"; do
+  echo "  docker pull ${DOCKERHUB_USER:-<username>}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-amd64  # AMD64"
+  echo "  docker pull ${DOCKERHUB_USER:-<username>}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-arm64  # ARM64"
+  echo ""
+done
+
 echo "  # GHCR"
-echo "  docker pull ghcr.io/${GHCR_USER:-<username>}/${DOCKERHUB_REPO}:latest"
+for tag in "${TAGS[@]}"; do
+  echo "  docker pull ghcr.io/${GHCR_USER:-<username>}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-amd64  # AMD64"
+  echo "  docker pull ghcr.io/${GHCR_USER:-<username>}/${DOCKERHUB_REPO}:${tag}${TAG_SUFFIX}-arm64  # ARM64"
+  echo ""
+done
