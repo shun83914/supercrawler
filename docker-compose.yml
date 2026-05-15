@@ -1,27 +1,23 @@
-version: "3.9"
+version: '3.8'
 
 services:
+  # SuperCrawler 服务
   supercrawler:
-    build: .
-    image: supercrawler:latest
+    image: ghcr.io/shun83914/supercrawler:latest-debian-arm64
     container_name: supercrawler
-    restart: unless-stopped
-    environment:
-      PORT: ${PORT:-5510}
-      API_TOKEN: ${API_TOKEN:-}
-      CLOAK_HEADLESS: "true"   # 容器内默认无头；扫码登录请在宿主机执行 npm run start
-      CLOAK_HUMANIZE: "true"
-      CLOAK_TIMEZONE: Asia/Shanghai
-      CLOAK_LOCALE: zh-CN
-      XHS_SCRAPE_CONCURRENCY: "1"
-      LOG_LEVEL: info
     ports:
-      - "${PORT:-5510}:${PORT:-5510}"
+      - "5510:5510"
     volumes:
-      - ./data:/data
-    # 健康检查
+      - ~/supercrawler/data:/data
+    environment:
+      - CLOAK_HEADLESS=true
+      - CLOAK_TIMEZONE=Asia/Shanghai
+      - CLOAK_LOCALE=zh-CN
+      - LOG_LEVEL=info
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:'+(process.env.PORT||'5510')+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "curl", "-f", "http://localhost:5510/api/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 10s

@@ -168,9 +168,119 @@ curl -s http://localhost:5510/api/health | jq .
 
 ---
 
+## Step 3.5: 跨容器部署方案（可选）
+
+**如果 OpenClaw 也在 Docker 容器中运行，需要使用此方案！**
+
+### 场景说明
+
+```
+宿主机
+├── OpenClaw（容器）
+│   └── ❌ 无法使用 docker exec（没有 Docker socket）
+│   └── ✅ 需要通过网络访问 SuperCrawler
+└── SuperCrawler（容器）
+    └── 端口 5510
+```
+
+### 方案：使用 Docker Compose（推荐）
+
+**Step 1: 创建 docker-compose.yml**
+
+```bash
+cat > ~/supercrawler/docker-compose.yml << 'EOF'
+version: '3.8'
+
+services:
+  # SuperCrawler 服务
+  supercrawler:
+    image: ghcr.io/shun83914/supercrawler:latest-debian-arm64
+    container_name: supercrawler
+    ports:
+      - "5510:5510"
+    volumes:
+      - ~/supercrawler/data:/data
+    environment:
+      - CLOAK_HEADLESS=true
+      - CLOAK_TIMEZONE=Asia/Shanghai
+      - CLOAK_LOCALE=zh-CN
+      - LOG_LEVEL=info
+    networks:
+      - supercrawler-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5510/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # OpenClaw 服务
+  openclaw:
+    image: openclaw-image:latest  # 替换为实际的 OpenClaw 镜像
+    container_name: openclaw
+    volumes:
+      - ~/.openclaw:/root/.openclaw
+    environment:
+      - SUPERCLAWER_URL=http://supercrawler:5510
+    networks:
+      - supercrawler-net
+    depends_on:
+      supercrawler:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  supercrawler-net:
+    driver: bridge
+EOF
+```
+
+**Step 2: 启动服务**
+
+```bash
+cd ~/supercrawler
+docker compose up -d
+```
+
+**Step 3: 验证**
+
+```bash
+# 查看容器状态
+docker compose ps
+
+# 测试容器间通信
+docker exec openclaw curl -s http://supercrawler:5510/api/health
+```
+
+**预期输出：**
+```json
+{"status":"ok","uptime":10}
+```
+
+### 关键点
+
+1. **共享网络**
+   - 两个容器加入同一网络 `supercrawler-net`
+   - 通过容器名互相访问（`http://supercrawler:5510`）
+
+2. **不要使用 localhost**
+   - ❌ `http://localhost:5510`（在 OpenClaw 容器内指的是自己）
+   - ✅ `http://supercrawler:5510`（通过容器名访问）
+
+3. **健康检查**
+   - OpenClaw 等待 SuperCrawler 健康后再启动
+   - 避免连接失败
+
+---
+
 # 阶段 2：配置 MCP Server
 
 ## Step 5: 创建 MCP 配置
+
+**根据部署方式选择配置：**
+
+### 场景 A：OpenClaw 在宿主机运行（本地开发）
 
 **关键**：配置 OpenClaw 通过 `docker exec` 连接到容器。
 
@@ -183,6 +293,7 @@ else
   echo "ℹ️  OpenClaw 配置目录已存在: ~/.openclaw"
 fi
 ```
+```bash
 cat > ~/.openclaw/mcp.json << 'EOF'
 {
   "$schema": "https://openclaw.dev/schema/mcp.json",
@@ -201,6 +312,43 @@ EOF
 
 echo "✅ MCP 配置已创建: ~/.openclaw/mcp.json"
 cat ~/.openclaw/mcp.json
+```
+
+### 场景 B：OpenClaw 在 Docker 容器中运行（生产环境）
+
+**关键**：MCP 使用 stdio 协议，需要通过 `docker exec` 连接容器。
+
+⚠️ **重要说明**：
+- SuperCrawler 的 MCP Server 使用 **stdio 模式**（不是 HTTP）
+- OpenClaw 容器需要能够执行 `docker exec` 命令
+- 需要挂载 Docker socket 或使用其他方式访问 Docker
+
+**MCP 配置（docker exec 模式）：**
+
+```bash
+# 启动 OpenClaw 容器时需要挂载 Docker socket
+docker run -d \
+  --name openclaw \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v ~/.openclaw:/root/.openclaw \
+  openclaw-image:latest
+
+# MCP 配置
+cat > ~/.openclaw/mcp.json << 'EOF'
+{
+  "$schema": "https://openclaw.dev/schema/mcp.json",
+  "mcpServers": {
+    "supercrawler": {
+      "command": "docker",
+      "args": ["exec", "-i", "supercrawler", "node", "dist/mcp/mcp.stdio.js"],
+      "env": {
+        "PROFILE_DIR": "/data/profiles",
+        "OUTPUT_DIR": "/data/output"
+      }
+    }
+  }
+}
+EOF
 ```
 
 **这个配置的作用：**
