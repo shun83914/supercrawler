@@ -30,7 +30,7 @@
     ↓
 阶段 3: 安装 Skills — 让 Agent 知道如何使用工具
     ↓
-阶段 4: 扫码登录 — 首次必须，获取登录态
+阶段 4: 扫码登录 — 首次必须，**分别登录小红书和抖音**
     ↓
 阶段 5: 使用 MCP Tools — 日常抓取任务
 ```
@@ -464,7 +464,9 @@ echo "✅ Skill 已安装: douyin-scraper"
 1. OpenClaw 是否识别到了 `supercrawler` MCP server
 2. 能否看到可用的工具列表
 
-**预期工具列表（9 个）：**
+**预期工具列表（19 个）：**
+
+**小红书工具（9 个）：**
 ```
 supercrawler:health
 supercrawler:auth_status
@@ -477,13 +479,35 @@ supercrawler:xhs_batch
 supercrawler:storage_peek
 ```
 
+**抖音工具（5 个）：**
+```
+supercrawler:douyin_scrape_awemes
+supercrawler:douyin_scrape_user
+supercrawler:douyin_scrape_search
+supercrawler:douyin_scrape_comments
+supercrawler:douyin_batch
+```
+
+**美团工具（5 个）：**
+```
+supercrawler:meituan_scrape_orders
+supercrawler:meituan_scrape_products
+supercrawler:meituan_scrape_reviews
+supercrawler:meituan_scrape_promotion_campaigns
+supercrawler:meituan_scrape_promotion_stats
+```
+
 告诉我是否看到了这些工具！
 
 ---
 
 # 阶段 4：扫码登录（首次必须）
 
+> **🎯 重要**：需要分别登录小红书和抖音两个平台！
+
 ## Step 9: 检查登录状态
+
+### 9.1 检查小红书登录
 
 **使用 MCP 工具：**
 ```
@@ -502,13 +526,33 @@ supercrawler:storage_peek
 }
 ```
 
-如果 `loggedIn: false`，需要执行 Step 10 扫码登录。
+### 9.2 检查抖音登录
+
+**使用 MCP 工具：**
+```
+调用: supercrawler:auth_status({
+  accountId: "default",
+  platform: "douyin"
+})
+```
+
+**预期输出（未登录）：**
+```json
+{
+  "accountId": "default",
+  "platform": "douyin",
+  "loggedIn": false
+}
+```
+
+**如果任一平台 `loggedIn: false`，需要执行 Step 10 扫码登录。**
 
 ---
 
 ## Step 10: 扫码登录
 
 > **⚠️ 注意**：此步骤需要你（用户）参与扫码。
+> **需要分别登录小红书和抖音！**
 
 ### 10.1 重启为 Headed 模式
 
@@ -539,7 +583,7 @@ echo "✅ 已重启为 Headed 模式（支持扫码）"
 sleep 3
 ```
 
-### 10.2 触发登录
+### 10.2 登录小红书
 
 **使用 MCP 工具（推荐）：**
 ```
@@ -555,27 +599,27 @@ curl -s -X POST "http://localhost:5510/api/auth/login" \
   -H "Content-Type: application/json" \
   -d '{"accountId":"default","platform":"xhs"}' &
 
-echo "⌛ 等待浏览器加载二维码..."
+echo "⌛ 等待小红书浏览器加载二维码..."
 sleep 8
 ```
 
-### 10.3 获取二维码截图
+### 10.3 获取小红书二维码截图
 
 **使用 HTTP API（临时）：**
 ```bash
-QR_RESPONSE=$(curl -s "http://localhost:5510/api/auth/qr-screenshot")
+QR_RESPONSE=$(curl -s "http://localhost:5510/api/auth/qr-screenshot?platform=xhs")
 SUCCESS=$(echo "$QR_RESPONSE" | jq -r '.success')
 
 if [ "$SUCCESS" = "true" ]; then
   QR_BASE64=$(echo "$QR_RESPONSE" | jq -r '.qrCode')
   QR_DATA=$(echo "$QR_BASE64" | sed 's/data:image\/png;base64,//')
-  echo "$QR_DATA" | base64 -d > /tmp/qr-code.png
+  echo "$QR_DATA" | base64 -d > /tmp/qr-xhs.png
   
-  echo "✅ 二维码已保存到: /tmp/qr-code.png"
+  echo "✅ 小红书二维码已保存到: /tmp/qr-xhs.png"
   
   # macOS 打开图片
   if [[ "$(uname)" == "Darwin" ]]; then
-    open /tmp/qr-code.png
+    open /tmp/qr-xhs.png
   fi
   
   echo ""
@@ -583,27 +627,27 @@ if [ "$SUCCESS" = "true" ]; then
   echo "📱 请使用小红书 App 扫码登录"
   echo "========================================"
   echo ""
-  echo "二维码路径: /tmp/qr-code.png"
+  echo "二维码路径: /tmp/qr-xhs.png"
   echo ""
-  echo "⏳ 等待你扫码...（扫码后告诉我'已扫码'）"
+  echo "⏳ 等待你扫码...（扫码后告诉我'已扫码小红书'）"
 else
-  echo "❌ 获取二维码失败"
+  echo "❌ 获取小红书二维码失败"
   exit 1
 fi
 ```
 
-### 10.4 等待用户扫码
+### 10.4 等待用户扫码小红书
 
 **告诉用户：**
 ```
-请打开 /tmp/qr-code.png 查看二维码，使用小红书 App 扫码。
-扫码完成后告诉我"已扫码"，我会继续检测登录状态。
+请打开 /tmp/qr-xhs.png 查看二维码，使用小红书 App 扫码。
+扫码完成后告诉我"已扫码小红书"，我会继续检测登录状态。
 ```
 
-**用户说"已扫码"后，执行：**
+**用户说"已扫码小红书"后，执行：**
 
 ```bash
-echo "🔍 检测登录状态..."
+echo "🔍 检测小红书登录状态..."
 
 # 轮询检测（最多 60 秒）
 for i in {1..12}; do
@@ -611,22 +655,118 @@ for i in {1..12}; do
   LOGGED=$(echo "$STATUS" | jq -r '.loggedIn')
   
   if [ "$LOGGED" = "true" ]; then
-    echo "✅ 登录成功！"
+    echo "✅ 小红书登录成功！"
     echo "$STATUS" | jq .
     break
   fi
   
-  echo "⌛ 等待登录... ($i/12)"
+  echo "⌛ 等待小红书登录... ($i/12)"
   sleep 5
 done
 
 if [ "$LOGGED" != "true" ]; then
-  echo "❌ 登录超时，请重新扫码"
+  echo "❌ 小红书登录超时，请重新扫码"
   exit 1
 fi
 ```
 
-### 10.5 切换回 Headless 模式
+### 10.5 登录抖音
+
+**小红书登录成功后，继续登录抖音：**
+
+echo ""
+echo "========================================"
+echo "🎵 现在登录抖音"
+echo "========================================"
+echo ""
+
+**使用 MCP 工具（推荐）：**
+```
+调用: supercrawler:auth_login({
+  accountId: "default",
+  platform: "douyin"
+})
+```
+
+**或者用 HTTP API 临时触发：**
+```bash
+curl -s -X POST "http://localhost:5510/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"accountId":"default","platform":"douyin"}' &
+
+echo "⌛ 等待抖音浏览器加载二维码..."
+sleep 8
+```
+
+### 10.6 获取抖音二维码截图
+
+```bash
+QR_RESPONSE=$(curl -s "http://localhost:5510/api/auth/qr-screenshot?platform=douyin")
+SUCCESS=$(echo "$QR_RESPONSE" | jq -r '.success')
+
+if [ "$SUCCESS" = "true" ]; then
+  QR_BASE64=$(echo "$QR_RESPONSE" | jq -r '.qrCode')
+  QR_DATA=$(echo "$QR_BASE64" | sed 's/data:image\/png;base64,//')
+  echo "$QR_DATA" | base64 -d > /tmp/qr-douyin.png
+  
+  echo "✅ 抖音二维码已保存到: /tmp/qr-douyin.png"
+  
+  # macOS 打开图片
+  if [[ "$(uname)" == "Darwin" ]]; then
+    open /tmp/qr-douyin.png
+  fi
+  
+  echo ""
+  echo "========================================"
+  echo "📱 请使用抖音 App 扫码登录"
+  echo "========================================"
+  echo ""
+  echo "二维码路径: /tmp/qr-douyin.png"
+  echo ""
+  echo "⏳ 等待你扫码...（扫码后告诉我'已扫码抖音'）"
+else
+  echo "❌ 获取抖音二维码失败"
+  exit 1
+fi
+```
+
+### 10.7 等待用户扫码抖音
+
+**告诉用户：**
+```
+请打开 /tmp/qr-douyin.png 查看二维码，使用抖音 App 扫码。
+扫码完成后告诉我"已扫码抖音"，我会继续检测登录状态。
+```
+
+**用户说"已扫码抖音"后，执行：**
+
+```bash
+echo "🔍 检测抖音登录状态..."
+
+# 轮询检测（最多 60 秒）
+for i in {1..12}; do
+  STATUS=$(curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=douyin")
+  LOGGED=$(echo "$STATUS" | jq -r '.loggedIn')
+  
+  if [ "$LOGGED" = "true" ]; then
+    echo "✅ 抖音登录成功！"
+    echo "$STATUS" | jq .
+    break
+  fi
+  
+  echo "⌛ 等待抖音登录... ($i/12)"
+  sleep 5
+done
+
+if [ "$LOGGED" != "true" ]; then
+  echo "❌ 抖音登录超时，请重新扫码"
+  exit 1
+fi
+```
+
+### 10.8 切换回 Headless 模式
+
+**两个平台都登录成功后，切换回 Headless 模式：**
 
 ```bash
 # 停止 Headed 容器
@@ -653,8 +793,13 @@ docker run -d \
 echo "✅ 已切换回 Headless 模式（高效抓取）"
 sleep 3
 
-# 验证登录态持久化
+# 验证小红书登录态持久化
+echo "🔍 检查小红书登录态:"
 curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=xhs" | jq .
+
+echo ""
+echo "🔍 检查抖音登录态:"
+curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=douyin" | jq .
 ```
 
 **预期输出：**
@@ -666,9 +811,16 @@ curl -s "http://localhost:5510/api/auth/status?accountId=default&platform=xhs" |
   "userId": "xxx",
   "nickname": "xxx"
 }
+{
+  "accountId": "default",
+  "platform": "douyin",
+  "loggedIn": true,
+  "userId": "xxx",
+  "nickname": "xxx"
+}
 ```
 
-**登录态已持久化！** 以后无需重新扫码（除非删除 `~/supercrawler/data/profiles`）。
+**两个平台的登录态都已持久化！** 以后无需重新扫码（除非删除 `~/supercrawler/data/profiles`）。
 
 ---
 
@@ -1045,9 +1197,14 @@ ls -lh ~/supercrawler/data/profiles/
 
 1. ✅ 执行 **阶段 1**（Step 1-4）：完成 Docker 部署
 2. ✅ 执行 **阶段 2**（Step 5）：配置 MCP Server
-3. ✅ 执行 **阶段 3**（Step 6-7）：安装 Skills
+3. ✅ 执行 **阶段 3**（Step 6-8）：安装 Skills
 4. ✅ 重启 OpenClaw，验证工具列表
-5. ✅ 执行 **阶段 4**（Step 9-10）：完成扫码登录
+5. ✅ 执行 **阶段 4**（Step 9-10）：**完成小红书 + 抖音双平台登录**
+   - 检查小红书登录状态
+   - 扫码登录小红书
+   - 检查抖音登录状态
+   - 扫码登录抖音
+   - 切换回 Headless 模式
 6. ✅ 告诉我配置完成，我们就可以开始使用 MCP tools 抓取数据了！
 
 **请从阶段 1 Step 1 开始，每步完成后告诉我结果！**

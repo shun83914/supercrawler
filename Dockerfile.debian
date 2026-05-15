@@ -71,7 +71,7 @@ WORKDIR /app
 COPY --from=builder /app/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY --from=builder /app/dist ./dist
-COPY entrypoint.sh /entrypoint.sh
+COPY scripts/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # 数据目录（profile 与抓取产物）通过 volume 挂载持久化

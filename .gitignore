@@ -9,3 +9,4 @@ data/output
 *.log
 .DS_Store
 .vscode
+test*.js
