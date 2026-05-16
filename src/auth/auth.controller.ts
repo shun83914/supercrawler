@@ -74,7 +74,7 @@ export class AuthController {
     summary: '获取登录二维码截图（Headed + Xvfb 模式）',
     description:
       '在 Headed 模式下，自动截取虚拟显示器中的二维码，返回 base64 图片。' +
-      '使用前请确保：1) CLOAK_HEADLESS=false 2) 已触发登录 3) 等待 3-5 秒让页面加载',
+      '使用前请确保：1) CLOAK_HEADLESS=false 2) Chromium 已下载完成 3) 已触发登录 4) 等待 3-5 秒让页面加载',
   })
   async getQrScreenshot(
     @Query('platform') platform?: 'xhs' | 'douyin',
@@ -87,6 +87,57 @@ export class AuthController {
       const plat = platform ?? 'xhs';
       const qrPath = `/tmp/qr-code-${plat}.png`;
 
+      // 检查浏览器是否就绪
+      const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
+      const fs = await import('fs');
+      const path = await import('path');
+      
+      try {
+        const dirs = fs.readdirSync(browsersPath).filter((d) => 
+          d.startsWith('chromium-')
+        );
+        
+        if (dirs.length === 0) {
+          return {
+            success: false,
+            error: 'Chromium 浏览器未下载。请等待浏览器下载完成后再截图（首次启动约需 2-5 分钟）。',
+          };
+        }
+
+        const chromiumDir = path.join(browsersPath, dirs[0]);
+        const chromePath = path.join(chromiumDir, 'chrome-linux', 'chrome');
+        
+        if (!fs.existsSync(chromePath)) {
+          return {
+            success: false,
+            error: 'Chromium 浏览器正在下载或下载失败。请检查浏览器状态：GET /api/browser/status',
+          };
+        }
+      } catch {
+        return {
+          success: false,
+          error: 'Chromium 浏览器未找到。请等待浏览器下载完成。',
+        };
+      }
+
+      // 检查是否在 Headed 模式下运行
+      if (process.env.CLOAK_HEADLESS === 'true') {
+        return {
+          success: false,
+          error: '当前运行在 Headless 模式，无法截图。请使用 Headed 模式（CLOAK_HEADLESS=false）启动容器。',
+        };
+      }
+
+      // 检查 Xvfb 是否运行
+      try {
+        await execAsync('xdpyinfo -display :99 >/dev/null 2>&1');
+      } catch {
+        return {
+          success: false,
+          error: 'Xvfb 虚拟显示器未运行。请使用 CLOAK_HEADLESS=false 启动容器。',
+        };
+      }
+
       // 执行 scrot 截图（通过 DISPLAY 环境变量指定虚拟显示器）
       await execAsync('DISPLAY=:99 scrot /tmp/qr-code-current.png -q 90');
 
@@ -95,6 +146,15 @@ export class AuthController {
         return {
           success: false,
           error: '截图文件未生成，请确认：1) Xvfb 已启动 2) 浏览器已打开',
+        };
+      }
+
+      // 检查截图是否为空或太小（可能是黑屏）
+      const stats = await fs.promises.stat('/tmp/qr-code-current.png');
+      if (stats.size < 1000) {
+        return {
+          success: false,
+          error: '截图文件太小（可能是黑屏）。请确认：1) 已触发登录 2) 浏览器已加载完成 3) 等待 5-10 秒后重试',
         };
       }
 

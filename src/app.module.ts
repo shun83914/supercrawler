@@ -9,6 +9,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { BrowserModule } from './browser/browser.module';
+import { BrowserController } from './browser/browser.controller';
 import { ResponseInterceptor } from './common/api/response.interceptor';
 import { CacheModule } from './common/cache/cache.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -60,7 +61,7 @@ dotenvExpand.expand(envResult);
     MeituanModule,
     SkillsModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, BrowserController],
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: ApiKeyGuard },

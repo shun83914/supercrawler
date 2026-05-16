@@ -733,6 +733,57 @@ sleep 5
 
 ---
 
+#### Step 10.1.2.5: 检查浏览器就绪（**重要！**）
+
+**⚠️ 首次运行时，Chromium 浏览器需要下载（约 2-5 分钟），必须等待下载完成！**
+
+**Agent 执行：**
+
+```bash
+# 检查浏览器状态
+BROWSER_STATUS=$(curl -s "http://localhost:5520/api/browser/status" | jq -r '.ready')
+
+if [ "$BROWSER_STATUS" != "true" ]; then
+  echo "⚠️ Chromium 浏览器正在下载，请稍候..."
+  
+  # 循环检查，最多等待 5 分钟
+  for i in $(seq 1 30); do
+    sleep 10
+    BROWSER_STATUS=$(curl -s "http://localhost:5520/api/browser/status" | jq -r '.ready')
+    if [ "$BROWSER_STATUS" = "true" ]; then
+      echo "✅ Chromium 浏览器下载完成！"
+      break
+    fi
+    echo "   等待中... ($((i * 10))秒)"
+  done
+  
+  if [ "$BROWSER_STATUS" != "true" ]; then
+    echo "❌ 浏览器下载超时，请检查容器日志"
+    docker logs supercrawler-xhs-login --tail 50
+    exit 1
+  fi
+else
+  echo "✅ Chromium 浏览器已就绪"
+fi
+```
+
+**如果浏览器未就绪，Agent 在飞书中发送：**
+
+```
+⏳ 首次启动，正在下载 Chromium 浏览器...
+
+预计需要 2-5 分钟，请耐心等待。
+下载完成后我会自动继续。
+```
+
+**下载完成后发送：**
+
+```
+✅ 浏览器准备就绪！现在触发登录流程...
+```
+
+---
+
 #### Step 10.1.3: 触发登录
 
 **Agent 执行：**
@@ -842,6 +893,42 @@ docker run -d --name supercrawler-douyin-login -p 5530:5510 \
 **等待 5 秒：**
 ```bash
 sleep 5
+```
+
+---
+
+#### Step 10.2.1.5: 检查浏览器就绪（**重要！**）
+
+**⚠️ 如果是首次运行或浏览器缓存被清理，Chromium 需要重新下载！**
+
+**Agent 执行：**
+
+```bash
+# 检查浏览器状态
+BROWSER_STATUS=$(curl -s "http://localhost:5530/api/browser/status" | jq -r '.ready')
+
+if [ "$BROWSER_STATUS" != "true" ]; then
+  echo "⚠️ Chromium 浏览器正在下载，请稍候..."
+  
+  # 循环检查，最多等待 5 分钟
+  for i in $(seq 1 30); do
+    sleep 10
+    BROWSER_STATUS=$(curl -s "http://localhost:5530/api/browser/status" | jq -r '.ready')
+    if [ "$BROWSER_STATUS" = "true" ]; then
+      echo "✅ Chromium 浏览器下载完成！"
+      break
+    fi
+    echo "   等待中... ($((i * 10))秒)"
+  done
+  
+  if [ "$BROWSER_STATUS" != "true" ]; then
+    echo "❌ 浏览器下载超时，请检查容器日志"
+    docker logs supercrawler-douyin-login --tail 50
+    exit 1
+  fi
+else
+  echo "✅ Chromium 浏览器已就绪"
+fi
 ```
 
 ---
