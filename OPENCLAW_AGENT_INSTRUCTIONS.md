@@ -687,6 +687,81 @@ supercrawler:meituan_scrape_promotion_stats
 
 ---
 
+### 9.3 诊断 Profile 状态（**新增！**）
+
+**⚠️ 当登录或搜索失败时，使用此工具诊断问题：**
+
+**使用 MCP 工具：**
+```
+调用: supercrawler:auth_profile_status({
+  accountId: "default"
+})
+```
+
+**或直接调用 API：**
+```bash
+curl -s "http://localhost:5510/api/auth/profile-status?accountId=default" | jq
+```
+
+**返回示例（正常）：**
+```json
+{
+  "accountId": "default",
+  "profileExists": true,
+  "lockFiles": {
+    "singletonLock": false,
+    "singletonSocket": false
+  },
+  "metadata": {
+    "xhs": {
+      "platform": "xhs",
+      "loginAt": "2026-05-11T09:00:00.000Z",
+      "status": "valid"
+    },
+    "douyin": {
+      "platform": "douyin",
+      "loginAt": "2026-05-11T10:00:00.000Z",
+      "status": "valid"
+    }
+  },
+  "message": "Profile 状态正常"
+}
+```
+
+**返回示例（有问题）：**
+```json
+{
+  "accountId": "default",
+  "profileExists": true,
+  "lockFiles": {
+    "singletonLock": true,  // ← 问题：残留锁文件
+    "singletonSocket": false
+  },
+  "metadata": {
+    "xhs": null,  // ← 问题：无元数据
+    "douyin": null
+  },
+  "message": "发现 1 个问题: 存在残留锁文件（可能有浏览器实例在运行）"
+}
+```
+
+**诊断指南：**
+
+| 问题 | 诊断结果 | 解决方案 |
+|------|---------|----------|
+| 锁文件残留 | `singletonLock: true` | 重启容器（自动清理） |
+| 无登录元数据 | `metadata.xhs: null` | 执行 Step 10 扫码登录 |
+| Profile 不存在 | `profileExists: false` | 从未登录，执行 Step 10 |
+| 登录过期 | `metadata.xhs.status: "expired"` | 重新登录 |
+
+**使用场景：**
+1. 搜索返回空结果时
+2. 登录失败时
+3. 容器重启后状态异常时
+4. 用户反馈“之前能用现在不能用”时
+
+---
+
 ## Step 10: Agent 引导扫码登录
 
 > **⚠️ 重要说明**：
@@ -1128,6 +1203,7 @@ docker stop supercrawler-douyin-login && docker rm supercrawler-douyin-login
 |------|------|------|
 | `supercrawler:health` | 健康检查 | 检查服务是否在线 |
 | `supercrawler:auth_status` | 检查登录 | `{accountId: "default", platform: "xhs"}` |
+| `supercrawler:auth_profile_status` | **诊断 Profile 状态** | `{accountId: "default"}` |
 | `supercrawler:auth_login` | 扫码登录 | `{accountId: "default", platform: "xhs"}` |
 | `supercrawler:auth_cleanup` | 清理过期数据 | `{accountId: "default", platform: "xhs", force: false}` |
 | `supercrawler:xhs_scrape_search` | 小红书搜索 | `{keywords: ["跑鞋"], sort: "popular", limit: 10}` |
@@ -1150,6 +1226,103 @@ docker stop supercrawler-douyin-login && docker rm supercrawler-douyin-login
 - `supercrawler:meituan_scrape_reviews` — 商品评价抓取
 - `supercrawler:meituan_scrape_promotion_campaigns` — 推广通活动抓取
 - `supercrawler:meituan_scrape_promotion_stats` — 推广数据统计
+
+---
+
+## 🔍 故障排查指南
+
+### 问题 1：搜索返回空结果
+
+**诊断步骤：**
+
+1. **检查 Profile 状态**
+   ```
+   supercrawler:auth_profile_status({accountId: "default"})
+   ```
+
+2. **检查登录状态**
+   ```
+   supercrawler:auth_status({accountId: "default", platform: "xhs"})
+   ```
+
+3. **查看容器日志**
+   ```bash
+   docker logs supercrawler 2>&1 | grep "search:" | tail -20
+   ```
+
+**常见原因：**
+| 原因 | 日志特征 | 解决方案 |
+|------|----------|----------|
+| 登录态过期 | `LOGIN_EXPIRED` | 重新扫码登录 |
+| 锁文件冲突 | `EPERM: operation not permitted` | 重启容器 |
+| 验证码拦截 | `redirected to verify` | 等待 30 分钟后重试 |
+| 页面加载失败 | `DOM elements found: 0` | 检查网络和登录态 |
+
+---
+
+### 问题 2：登录失败
+
+**诊断步骤：**
+
+1. **检查浏览器状态**
+   ```bash
+   curl -s "http://localhost:5520/api/browser/status" | jq
+   ```
+
+2. **检查 Profile 状态**
+   ```
+   supercrawler:auth_profile_status({accountId: "default"})
+   ```
+
+3. **查看容器日志**
+   ```bash
+   docker logs supercrawler-xhs-login 2>&1 | tail -50
+   ```
+
+**常见原因：**
+| 原因 | 诊断结果 | 解决方案 |
+|------|---------|----------|
+| Chromium 未下载 | `browser.ready: false` | 等待 2-5 分钟 |
+| 锁文件残留 | `singletonLock: true` | 重启容器 |
+| Xvfb 未启动 | 容器日志报错 | 确认 `CLOAK_HEADLESS=false` |
+
+---
+
+### 问题 3：容器重启后状态异常
+
+**解决方案：**
+
+1. **重启容器**（自动清理锁文件）
+   ```bash
+   docker restart supercrawler
+   ```
+
+2. **检查 Profile 状态**
+   ```
+   supercrawler:auth_profile_status({accountId: "default"})
+   ```
+
+3. **如果元数据丢失，重新登录**
+   ```
+   执行 Step 10 扫码登录
+   ```
+
+**注意：** 容器重启不会影响登录态（Cookie 保存在 Volume 中）
+
+---
+
+### 问题 4：多平台登录冲突
+
+**症状：**
+- 先登录抖音，再登录小红书
+- 小红书登录后，抖音显示“未登录”
+
+**原因：** 旧版本元数据只保存最后一个平台
+
+**解决方案：**
+- ✅ **新版本已修复**：支持多平台元数据
+- ✅ **自动迁移**：首次读取时自动转换格式
+- ✅ **无需手动操作**
 
 ---
 
