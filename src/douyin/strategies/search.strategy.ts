@@ -113,16 +113,30 @@ export class SearchStrategy implements IScrapeStrategy<
 
     try {
       const resp = await page
-        .goto(url, { waitUntil: 'domcontentloaded' })
+        .goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
         .catch(() => null);
+      
       if (resp && VERIFY_HOST.test(resp.url())) {
         throw new BusinessException(
           ErrorCode.DOUYIN_CAPTCHA,
           `redirected to verify: ${resp.url()}`,
         );
       }
+      
+      // 检查最终 URL
+      const currentUrl = page.url();
+      this.logger.log(`[search:${input.keyword}] page loaded: ${currentUrl}`);
+      
+      // 检查是否被重定向到验证码页面
+      if (VERIFY_HOST.test(currentUrl)) {
+        throw new BusinessException(
+          ErrorCode.DOUYIN_CAPTCHA,
+          `redirected to verify page: ${currentUrl}`,
+        );
+      }
+      
       await page.waitForLoadState('networkidle').catch(() => undefined);
-      await randomSleep(1000, 1800);
+      await randomSleep(1500, 2500); // 增加等待时间
 
       let stagnant = 0;
       for (let round = 0; round < 30 && items.length < limit; round++) {
@@ -140,7 +154,17 @@ export class SearchStrategy implements IScrapeStrategy<
       page.off('response', onResponse);
     }
 
-    this.logger.log(`[search:${input.keyword}] collected ${items.length}`);
+    this.logger.log(`[search:${input.keyword}] collected ${items.length} items`);
+    
+    // 如果结果为空，提供调试信息
+    if (items.length === 0) {
+      this.logger.warn(`[search:${input.keyword}] no results found. Possible reasons:`);
+      this.logger.warn(`  1. Page redirected to verify/captcha`);
+      this.logger.warn(`  2. JavaScript not fully loaded`);
+      this.logger.warn(`  3. Network requests blocked`);
+      this.logger.warn(`  4. Login session expired`);
+    }
+    
     return items.slice(0, limit);
   }
 }

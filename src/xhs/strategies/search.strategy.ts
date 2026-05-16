@@ -84,22 +84,42 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
     const fetchLimit = Math.min(hasFilter ? targetLimit * 3 : targetLimit, 200);
 
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForLoadState('networkidle').catch(() => undefined);
-      await randomSleep(800, 1600);
+      await randomSleep(1500, 2500); // 增加等待时间，让页面充分加载
 
-      // 调试：检查页面标题和URL
+      // 调试：检查页面状态
       const pageTitle = await page.title();
       const currentUrl = page.url();
       this.logger.log(`[search:${input.keyword}] page loaded: ${currentUrl}, title: ${pageTitle}`);
 
+      // 检查是否被重定向到验证码页面
+      if (currentUrl.includes('verify') || currentUrl.includes('captcha')) {
+        this.logger.warn(`[search:${input.keyword}] redirected to verify page: ${currentUrl}`);
+        throw new Error('页面被重定向到验证码验证，可能触发反爬机制');
+      }
+
+      // 检查页面是否有搜索结果内容
+      const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 500) || '');
+      this.logger.log(`[search:${input.keyword}] page body preview: ${bodyText.slice(0, 200)}`);
+
       const collected = new Map<string, SearchResultItem>();
       let stagnant = 0;
-      for (let round = 0; round < 120 && collected.size < fetchLimit; round++) {
+      const maxRounds = 120;
+      
+      for (let round = 0; round < maxRounds && collected.size < fetchLimit; round++) {
         // 调试：首轮检查DOM元素数量
         if (round === 0) {
           const domCount = await page.$$eval('section.note-item, a.cover', (nodes) => nodes.length).catch(() => 0);
-          this.logger.log(`[search:${input.keyword}] DOM elements found: ${domCount}`);
+          this.logger.log(`[search:${input.keyword}] DOM elements found in round 0: ${domCount}`);
+          
+          // 如果首轮没有元素，等待更长时间再试
+          if (domCount === 0) {
+            this.logger.log(`[search:${input.keyword}] no elements found, waiting 3 seconds...`);
+            await page.waitForTimeout(3000);
+            const retryCount = await page.$$eval('section.note-item, a.cover', (nodes) => nodes.length).catch(() => 0);
+            this.logger.log(`[search:${input.keyword}] DOM elements after wait: ${retryCount}`);
+          }
         }
         
         const batch = await page.$$eval('section.note-item, a.cover', (nodes) =>
@@ -154,6 +174,26 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
           stagnant = 0;
         }
         await scrollPage(page, { steps: 1, stepDelayMs: [800, 1600] });
+      }
+
+      // 记录搜索结果
+      this.logger.log(`[search:${input.keyword}] collected ${collected.size} items after ${maxRounds} rounds`);
+      
+      // 如果结果为空，提供调试信息
+      if (collected.size === 0) {
+        this.logger.warn(`[search:${input.keyword}] no results found. Possible reasons:`);
+        this.logger.warn(`  1. Page structure changed (anti-scraping)`);
+        this.logger.warn(`  2. JavaScript not fully loaded`);
+        this.logger.warn(`  3. Network requests blocked`);
+        this.logger.warn(`  4. Login session expired`);
+        
+        // 截图调试
+        try {
+          const screenshot = await page.screenshot({ fullPage: false });
+          this.logger.warn(`[search:${input.keyword}] screenshot captured: ${screenshot.length} bytes`);
+        } catch {
+          // 忽略截图错误
+        }
       }
 
       // 给拦截到的未处理 response 一点时间 flush。

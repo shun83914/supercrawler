@@ -3,15 +3,20 @@ import { ApiOperation, ApiTags, ApiBody } from '@nestjs/swagger';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
+import * as path from 'path';
 import { AccountIdQueryDto, LoginDto } from './dto/login.dto';
 import { AuthService, LoginStatus } from './auth.service';
+import { LoginMetadataService } from './login-metadata.service';
 
 const execAsync = promisify(exec);
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly metadataService: LoginMetadataService,
+  ) {}
 
   @Post('login')
   @ApiOperation({
@@ -67,6 +72,75 @@ export class AuthController {
     const platform = body.platform || 'xhs';
     const force = body.force || false;
     return this.auth.cleanupExpiredData(accountId, platform, force);
+  }
+
+  @Get('profile-status')
+  @ApiOperation({
+    summary: '诊断 Profile 状态',
+    description:
+      '检查指定账号的 profile 目录状态，包括：锁文件、元数据、Cookie 等。' +
+      '用于诊断登录失败、搜索失败等问题。',
+  })
+  async getProfileStatus(
+    @Query('accountId') accountId = 'default',
+  ): Promise<{
+    accountId: string;
+    profileExists: boolean;
+    lockFiles: { singletonLock: boolean; singletonSocket: boolean };
+    metadata: { xhs?: any; douyin?: any };
+    message: string;
+  }> {
+    const profileDir = process.env.PROFILE_DIR || './data/profiles';
+    const accountDir = path.join(profileDir, accountId);
+    
+    const result: {
+      accountId: string;
+      profileExists: boolean;
+      lockFiles: { singletonLock: boolean; singletonSocket: boolean };
+      metadata: { xhs?: any; douyin?: any };
+      message: string;
+    } = {
+      accountId,
+      profileExists: fs.existsSync(accountDir),
+      lockFiles: {
+        singletonLock: false,
+        singletonSocket: false,
+      },
+      metadata: {},
+      message: '',
+    };
+
+    if (!result.profileExists) {
+      result.message = 'Profile 目录不存在（从未登录）';
+      return result;
+    }
+
+    // 检查锁文件
+    result.lockFiles.singletonLock = fs.existsSync(path.join(accountDir, 'SingletonLock'));
+    result.lockFiles.singletonSocket = fs.existsSync(path.join(accountDir, 'SingletonSocket'));
+
+    // 检查元数据
+    try {
+      result.metadata.xhs = await this.metadataService.read(accountId, 'xhs');
+      result.metadata.douyin = await this.metadataService.read(accountId, 'douyin');
+    } catch {
+      // 忽略元数据读取错误
+    }
+
+    // 生成诊断信息
+    const issues: string[] = [];
+    if (result.lockFiles.singletonLock || result.lockFiles.singletonSocket) {
+      issues.push('存在残留锁文件（可能有浏览器实例在运行）');
+    }
+    if (!result.metadata.xhs && !result.metadata.douyin) {
+      issues.push('无登录元数据（可能未登录或元数据已清理）');
+    }
+
+    result.message = issues.length > 0 
+      ? `发现 ${issues.length} 个问题: ${issues.join('; ')}`
+      : 'Profile 状态正常';
+
+    return result;
   }
 
   @Get('qr-screenshot')

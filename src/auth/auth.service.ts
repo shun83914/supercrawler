@@ -70,6 +70,9 @@ export class AuthService {
   ): Promise<LoginStatus> {
     const profile = this.profile(platform);
     
+    // 关键修复：登录前验证并清理 profile 状态
+    await this.validateAndCleanupProfile(accountId, platform);
+    
     // 先清理旧的登录数据（如果有）
     await this.cleanupExpiredData(accountId, platform, true);
     
@@ -98,6 +101,69 @@ export class AuthService {
       throw new Error(`login timeout after ${profile.loginWaitMs}ms`);
     } finally {
       await release();
+    }
+  }
+
+  /**
+   * 验证并清理 profile 状态（防止多平台登录冲突）
+   * 
+   * 问题场景：
+   * 1. 先登录抖音，profile 中写入抖音 Cookie
+   * 2. 再登录小红书，但 profile 中仍有抖音 Cookie
+   * 3. 导致平台检测混乱或 Cookie 冲突
+   * 
+   * 解决方案：
+   * 1. 检查 profile 目录状态
+   * 2. 清理残留的锁文件
+   * 3. 验证元数据一致性
+   */
+  private async validateAndCleanupProfile(
+    accountId: string,
+    platform: AuthPlatform,
+  ): Promise<void> {
+    const profileDir = this.config.get<string>('profileDir') || './data/profiles';
+    const accountDir = path.join(profileDir, accountId);
+
+    // 1. 检查 profile 目录是否存在
+    if (!fs.existsSync(accountDir)) {
+      this.logger.log(`Profile directory does not exist, will create: ${accountDir}`);
+      await fs.promises.mkdir(accountDir, { recursive: true });
+      return;
+    }
+
+    // 2. 清理残留的锁文件
+    const lockFile = path.join(accountDir, 'SingletonLock');
+    const lockSocket = path.join(accountDir, 'SingletonSocket');
+    
+    try {
+      if (fs.existsSync(lockFile)) {
+        await fs.promises.unlink(lockFile);
+        this.logger.log(`Cleaned stale lock file before login: ${lockFile}`);
+      }
+      if (fs.existsSync(lockSocket)) {
+        await fs.promises.unlink(lockSocket);
+        this.logger.log(`Cleaned stale socket before login: ${lockSocket}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to cleanup lock files: ${(err as Error).message}`);
+    }
+
+    // 3. 检查元数据一致性
+    const metadataService = this.metadataService;
+    const currentMetadata = await metadataService.read(accountId, platform);
+    
+    if (currentMetadata) {
+      this.logger.log(
+        `Existing ${platform} metadata found (loginAt: ${currentMetadata.loginAt}, status: ${currentMetadata.status})`,
+      );
+      
+      // 如果之前标记为 expired，清理旧数据
+      if (currentMetadata.status === 'expired') {
+        this.logger.log(`Previous ${platform} session expired, cleaning up...`);
+        await this.cleanupExpiredData(accountId, platform, true);
+      }
+    } else {
+      this.logger.log(`No existing ${platform} metadata, fresh login`);
     }
   }
 

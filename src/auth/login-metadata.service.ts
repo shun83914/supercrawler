@@ -18,6 +18,14 @@ export interface LoginMetadata {
 }
 
 /**
+ * 多平台登录元数据文件结构
+ * 一个文件存储所有平台的登录信息
+ */
+export interface MultiPlatformMetadata {
+  [platform: string]: LoginMetadata;
+}
+
+/**
  * 登录元数据管理服务
  * 
  * 职责：
@@ -48,14 +56,33 @@ export class LoginMetadataService {
 
     try {
       const content = await fs.promises.readFile(metadataPath, 'utf-8');
-      const metadata: LoginMetadata = JSON.parse(content);
+      const parsed = JSON.parse(content);
       
-      // 只返回当前平台的元数据
-      if (metadata.platform !== platform) {
-        return null;
+      // 自动迁移：如果是旧格式（单平台），自动转换为新格式（多平台）
+      if (parsed.platform && typeof parsed.platform === 'string') {
+        // 旧格式：{ platform: "xhs", ... }
+        // 转换为新格式：{ "xhs": { platform: "xhs", ... } }
+        const oldFormat = parsed as LoginMetadata;
+        const newFormat: MultiPlatformMetadata = {
+          [oldFormat.platform]: oldFormat,
+        };
+        
+        // 写回新格式
+        await fs.promises.writeFile(
+          metadataPath,
+          JSON.stringify(newFormat, null, 2),
+          'utf-8',
+        );
+        
+        this.logger.log(`Auto-migrated metadata for ${accountId} from single-platform to multi-platform`);
+        
+        // 返回当前平台的元数据
+        return newFormat[platform] || null;
       }
       
-      return metadata;
+      // 新格式：{ "xhs": {...}, "douyin": {...} }
+      const allMetadata: MultiPlatformMetadata = parsed;
+      return allMetadata[platform] || null;
     } catch (err) {
       this.logger.warn(`Failed to read metadata for ${accountId}/${platform}: ${err.message}`);
       return null;
@@ -63,7 +90,7 @@ export class LoginMetadataService {
   }
 
   /**
-   * 保存登录元数据
+   * 保存登录元数据（支持多平台）
    * 
    * @param accountId 账号 ID
    * @param metadata 元数据对象
@@ -75,13 +102,29 @@ export class LoginMetadataService {
     // 确保目录存在
     await fs.promises.mkdir(profileDir, { recursive: true });
     
+    // 读取现有的多平台元数据
+    let allMetadata: MultiPlatformMetadata = {};
+    if (fs.existsSync(metadataPath)) {
+      try {
+        const content = await fs.promises.readFile(metadataPath, 'utf-8');
+        allMetadata = JSON.parse(content);
+      } catch {
+        // 文件损坏，从头开始
+        allMetadata = {};
+      }
+    }
+    
+    // 更新当前平台的元数据
+    allMetadata[metadata.platform] = metadata;
+    
+    // 写回文件
     await fs.promises.writeFile(
       metadataPath,
-      JSON.stringify(metadata, null, 2),
+      JSON.stringify(allMetadata, null, 2),
       'utf-8',
     );
     
-    this.logger.log(`Saved login metadata for ${accountId}/${metadata.platform}`);
+    this.logger.log(`Saved login metadata for ${accountId}/${metadata.platform} (total platforms: ${Object.keys(allMetadata).length})`);
   }
 
   /**
@@ -109,6 +152,28 @@ export class LoginMetadataService {
     };
     
     await this.save(accountId, updated);
+  }
+
+  /**
+   * 读取所有平台的元数据
+   * 
+   * @param accountId 账号 ID
+   * @returns 所有平台的元数据映射
+   */
+  async readAll(accountId: string): Promise<MultiPlatformMetadata> {
+    const metadataPath = this.getMetadataPath(accountId);
+    
+    if (!fs.existsSync(metadataPath)) {
+      return {};
+    }
+
+    try {
+      const content = await fs.promises.readFile(metadataPath, 'utf-8');
+      return JSON.parse(content);
+    } catch (err) {
+      this.logger.warn(`Failed to read all metadata for ${accountId}: ${err.message}`);
+      return {};
+    }
   }
 
   /**

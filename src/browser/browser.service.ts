@@ -143,6 +143,10 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
     const userDataDir = this.profileDirOf(accountId);
     await fs.promises.mkdir(userDataDir, { recursive: true });
 
+    // 关键修复：在创建 context 前清理残留的锁文件
+    // 防止容器异常退出或多次重启导致的锁文件冲突
+    await this.cleanupLockFiles(userDataDir);
+
     const headless = override.headless ?? cloak?.headless ?? false;
     const humanize = override.humanize ?? cloak?.humanize ?? true;
     const proxy = override.proxy ?? cloak?.proxy;
@@ -178,5 +182,39 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
     };
     this.contexts.set(accountId, entry);
     return entry;
+  }
+
+  /**
+   * 清理浏览器锁文件（防止异常退出后无法启动）
+   */
+  private async cleanupLockFiles(userDataDir: string): Promise<void> {
+    const lockFile = path.join(userDataDir, 'SingletonLock');
+    const lockSocket = path.join(userDataDir, 'SingletonSocket');
+    
+    let cleaned = 0;
+    
+    try {
+      if (await fs.promises.access(lockFile).then(() => true).catch(() => false)) {
+        await fs.promises.unlink(lockFile);
+        cleaned++;
+        this.logger.debug(`Removed stale lock file: ${lockFile}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to remove lock file ${lockFile}: ${(err as Error).message}`);
+    }
+    
+    try {
+      if (await fs.promises.access(lockSocket).then(() => true).catch(() => false)) {
+        await fs.promises.unlink(lockSocket);
+        cleaned++;
+        this.logger.debug(`Removed stale socket: ${lockSocket}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to remove socket ${lockSocket}: ${(err as Error).message}`);
+    }
+    
+    if (cleaned > 0) {
+      this.logger.log(`Cleaned ${cleaned} stale lock file(s) for ${path.basename(userDataDir)}`);
+    }
   }
 }
