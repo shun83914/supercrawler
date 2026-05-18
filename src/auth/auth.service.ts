@@ -259,8 +259,9 @@ export class AuthService {
     const profileDir = this.config.get<string>('profileDir') || './data/profiles';
     const accountDir = path.join(profileDir, accountId);
     const defaultDir = path.join(accountDir, 'Default');
+    const metadataFile = path.join(accountDir, 'login-metadata.json');
 
-    // 关键修复：直接删除整个 Default 目录
+    // 关键修复 1：删除整个 Default 目录
     // 这是最彻底的方式，确保清除所有登录态
     if (fs.existsSync(defaultDir)) {
       try {
@@ -289,6 +290,26 @@ export class AuthService {
       this.logger.log(
         `[login ${platform}/${accountId}] Default 目录不存在（首次登录），将创建全新的 profile`,
       );
+    }
+
+    // 关键修复 2：删除登录元数据文件
+    // 防止 checkStatus 使用缓存的登录状态，强制重新验证
+    if (fs.existsSync(metadataFile)) {
+      try {
+        this.logger.log(
+          `[login ${platform}/${accountId}] 删除登录元数据文件（清除缓存状态）...`,
+        );
+        
+        await fs.promises.unlink(metadataFile);
+        
+        this.logger.log(
+          `[login ${platform}/${accountId}] 元数据文件已删除，下次 checkStatus 将重新验证`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `[login ${platform}/${accountId}] 删除元数据文件失败: ${(err as Error).message}`,
+        );
+      }
     }
   }
 
