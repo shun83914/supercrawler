@@ -70,11 +70,24 @@ export class AuthService {
   ): Promise<LoginStatus> {
     const profile = this.profile(platform);
     
-    // 关键修复：登录前验证并清理 profile 状态
+    // 关键修复 1: 先关闭已存在的浏览器 Context
+    // 防止内存中残留旧的登录态
+    if (this.browser.hasContext(accountId)) {
+      this.logger.log(
+        `[login ${platform}/${accountId}] 检测到已存在的浏览器 Context，正在关闭...`,
+      );
+      await this.browser.closeContext(accountId);
+      this.logger.log(
+        `[login ${platform}/${accountId}] 旧 Context 已关闭`,
+      );
+    }
+    
+    // 关键修复 2: 登录前验证并清理 profile 状态
     await this.validateAndCleanupProfile(accountId, platform);
     
-    // 先清理旧的登录数据（如果有）
-    await this.cleanupExpiredData(accountId, platform, true);
+    // 关键修复 3: 强制清除浏览器的 Cookie 和 Session 文件
+    // 确保不会使用残留的登录信息
+    await this.clearBrowserCredentials(accountId, platform);
     
     const lease = await this.pages.acquire(accountId, {
       headless: false,
@@ -224,6 +237,156 @@ export class AuthService {
       throw new Error(`login timeout after ${profile.loginWaitMs}ms (checked ${checkCount} times)`);
     } finally {
       await release();
+    }
+  }
+
+  /**
+   * 清除浏览器的 Cookie 和 Session 文件
+   * 确保登录时不会使用残留的登录信息
+   * 
+   * 适用场景：
+   * 1. 首次登录
+   * 2. 重新登录
+   * 3. 登录过期后重新登录
+   * 
+   * 关键修复：直接删除整个 Default 目录，而不是清理单个文件
+   * 这是最彻底的方式，确保没有任何残留的登录态
+   */
+  private async clearBrowserCredentials(
+    accountId: string,
+    platform: AuthPlatform,
+  ): Promise<void> {
+    const profileDir = this.config.get<string>('profileDir') || './data/profiles';
+    const accountDir = path.join(profileDir, accountId);
+    const defaultDir = path.join(accountDir, 'Default');
+
+    // 关键修复：直接删除整个 Default 目录
+    // 这是最彻底的方式，确保清除所有登录态
+    if (fs.existsSync(defaultDir)) {
+      try {
+        this.logger.log(
+          `[login ${platform}/${accountId}] 删除整个 Default 目录（彻底清除登录态）...`,
+        );
+        
+        // 递归删除整个目录
+        await fs.promises.rm(defaultDir, { recursive: true, force: true });
+        
+        this.logger.log(
+          `[login ${platform}/${accountId}] Default 目录已删除，浏览器将创建全新的 profile`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `[login ${platform}/${accountId}] 删除 Default 目录失败: ${(err as Error).message}`,
+        );
+        
+        // 如果删除失败，尝试清理关键文件
+        this.logger.warn(
+          `[login ${platform}/${accountId}] 尝试清理关键文件作为备用方案...`,
+        );
+        await this.cleanupIndividualFiles(accountDir, platform);
+      }
+    } else {
+      this.logger.log(
+        `[login ${platform}/${accountId}] Default 目录不存在（首次登录），将创建全新的 profile`,
+      );
+    }
+  }
+
+  /**
+   * 备用方案：清理单个文件（当删除目录失败时使用）
+   */
+  private async cleanupIndividualFiles(
+    accountDir: string,
+    platform: AuthPlatform,
+  ): Promise<void> {
+    const defaultDir = path.join(accountDir, 'Default');
+    const accountId = path.basename(accountDir); // 从目录路径提取 accountId
+    
+    // 确保目录存在
+    if (!fs.existsSync(defaultDir)) {
+      await fs.promises.mkdir(defaultDir, { recursive: true });
+      return;
+    }
+
+    // 需要清理的文件列表（扩展版）
+    const filesToClean = [
+      // Cookie 文件
+      'Cookies',
+      'Cookies-journal',
+      
+      // 登录数据
+      'Login Data',
+      'Login Data For Account',
+      'Login Data For Account-journal',
+      
+      // Session 存储
+      'Session Storage',
+      'Session Storage-journal',
+      
+      // Local Storage（可能包含登录态）
+      'Local Storage',
+      'Local Storage-journal',
+      
+      // IndexedDB（可能包含登录态）
+      'IndexedDB',
+      
+      // Service Workers
+      'Service Worker',
+      
+      // Network（HTTP 缓存，可能包含认证信息）
+      'Network',
+      'Network Cache',
+      
+      // 其他可能包含登录态的文件
+      'Network Persistent State',
+      'QuotaManager',
+      'QuotaManager-journal',
+      'Web Data',
+      'Web Data-journal',
+      'History',
+      'History-journal',
+      'Top Sites',
+      'Top Sites-journal',
+      'Favicons',
+      'Favicons-journal',
+    ];
+
+    let cleanedCount = 0;
+    
+    for (const file of filesToClean) {
+      const filePath = path.join(defaultDir, file);
+      
+      try {
+        if (fs.existsSync(filePath)) {
+          const stats = await fs.promises.stat(filePath);
+          
+          if (stats.isDirectory()) {
+            // 删除目录及其内容
+            await fs.promises.rm(filePath, { recursive: true, force: true });
+            this.logger.log(
+              `[login ${platform}/${accountId}] 清理目录: ${file}`,
+            );
+          } else {
+            // 删除文件
+            await fs.promises.unlink(filePath);
+            this.logger.log(
+              `[login ${platform}/${accountId}] 清理文件: ${file}`,
+            );
+          }
+          
+          cleanedCount++;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[login ${platform}/${accountId}] 清理 ${file} 失败: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.logger.log(
+        `[login ${platform}/${accountId}] 备用方案：已清理 ${cleanedCount} 个文件/目录`,
+      );
     }
   }
 
