@@ -82,23 +82,146 @@ export class AuthService {
     });
     const { page, context, release } = lease;
     try {
-      await page.goto(profile.home, { waitUntil: 'domcontentloaded' });
+      // 关键增强 1: 自动关闭 alert/confirm/prompt 弹窗
+      page.on('dialog', async (dialog) => {
+        this.logger.warn(
+          `[login ${platform}/${accountId}] 检测到弹窗: ${dialog.type()} - ${dialog.message()}`,
+        );
+        
+        // 根据弹窗类型采取不同处理方式
+        try {
+          if (dialog.type() === 'alert') {
+            // alert 只有一个按钮，使用 accept()
+            this.logger.warn(`[login ${platform}/${accountId}] 自动关闭 alert 弹窗`);
+            await dialog.accept();
+          } else if (dialog.type() === 'confirm') {
+            // confirm 有两个按钮（确定/取消），使用 dismiss() 取消
+            this.logger.warn(`[login ${platform}/${accountId}] 自动关闭 confirm 弹窗`);
+            await dialog.dismiss();
+          } else if (dialog.type() === 'prompt') {
+            // prompt 有输入框，使用 dismiss() 取消
+            this.logger.warn(`[login ${platform}/${accountId}] 自动关闭 prompt 弹窗`);
+            await dialog.dismiss();
+          } else if (dialog.type() === 'beforeunload') {
+            // beforeunload 页面卸载确认，使用 dismiss() 取消
+            this.logger.warn(`[login ${platform}/${accountId}] 自动关闭 beforeunload 弹窗`);
+            await dialog.dismiss();
+          } else {
+            // 未知类型，默认使用 accept()
+            this.logger.warn(`[login ${platform}/${accountId}] 自动关闭未知类型弹窗: ${dialog.type()}`);
+            await dialog.accept();
+          }
+        } catch (err) {
+          this.logger.error(
+            `[login ${platform}/${accountId}] 关闭弹窗失败: ${(err as Error).message}`,
+          );
+        }
+      });
+
+      // 关键增强 2: 打开页面
+      this.logger.log(
+        `[login ${platform}/${accountId}] 正在打开 ${profile.home}...`,
+      );
+      
+      await page.goto(profile.home, { 
+        waitUntil: 'domcontentloaded',
+        timeout: 30000, // 30秒超时
+      });
+
+      // 关键增强 3: 等待页面完全加载（包括 JavaScript）
+      this.logger.log(
+        `[login ${platform}/${accountId}] 等待页面完全加载...`,
+      );
+      await page.waitForLoadState('networkidle').catch(() => {
+        this.logger.warn(
+          `[login ${platform}/${accountId}] networkidle 超时，继续执行`,
+        );
+      });
+
+      // 关键增强 4: 等待登录表单元素出现（智能等待，最长 15 秒）
+      this.logger.log(
+        `[login ${platform}/${accountId}] 等待登录表单加载...`,
+      );
+      
+      try {
+        // 根据不同平台等待特定的登录元素
+        const loginSelectors: Record<AuthPlatform, string> = {
+          xhs: '.login-container, [class*="login"], qr-code', // 小红书登录容器
+          douyin: '.login-panel, [class*="qrcode"], #captcha-verify-container', // 抖音登录面板
+        };
+        
+        const selector = loginSelectors[platform];
+        if (selector) {
+          // 等待登录元素出现，最长 15 秒
+          await page.waitForSelector(selector, { 
+            timeout: 15000,
+            state: 'visible',
+          }).catch(() => {
+            this.logger.warn(
+              `[login ${platform}/${accountId}] 未检测到特定登录元素，使用固定等待`,
+            );
+          });
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[login ${platform}/${accountId}] 等待登录元素超时: ${(err as Error).message}`,
+        );
+      }
+
+      // 关键增强 5: 固定等待，确保登录表单完全渲染
+      // 抖音登录框通常延迟 2-3 秒出现，小红书 1-2 秒
+      const initialWait = platform === 'douyin' ? 5000 : 3000;
+      this.logger.log(
+        `[login ${platform}/${accountId}] 等待 ${initialWait}ms 让登录表单完全渲染...`,
+      );
+      await page.waitForTimeout(initialWait);
+
+      // 关键增强 6: 截图调试（可选，帮助诊断登录表单是否加载）
+      try {
+        const debugScreenshot = `/tmp/login-debug-${platform}-${accountId}.png`;
+        await page.screenshot({ path: debugScreenshot, fullPage: true });
+        this.logger.log(
+          `[login ${platform}/${accountId}] 调试截图已保存: ${debugScreenshot}`,
+        );
+      } catch {
+        // 忽略截图错误
+      }
+
       this.logger.log(
         `[login ${platform}/${accountId}] 请在弹出的浏览器中扫码登录，最长等待 ${profile.loginWaitMs}ms`,
       );
+      
       const deadline = Date.now() + profile.loginWaitMs;
+      let checkCount = 0;
+      
       while (Date.now() < deadline) {
+        checkCount++;
+        
+        // 检查是否有 session cookie
         if (await this.hasSessionCookie(context, profile)) {
+          this.logger.log(
+            `[login ${platform}/${accountId}] 检测到登录 Cookie (检查 ${checkCount} 次)`,
+          );
+          
           const status = await this.probeStatus(accountId, platform, context);
           if (status.loggedIn) {
             // 保存登录元数据
             await this.saveLoginMetadata(accountId, platform, status);
+            this.logger.log(
+              `[login ${platform}/${accountId}] 登录成功! userId: ${status.userId}, nickname: ${status.nickname}`,
+            );
             return status;
           }
         }
+        
+        // 每 2 秒检查一次
         await page.waitForTimeout(2000);
       }
-      throw new Error(`login timeout after ${profile.loginWaitMs}ms`);
+      
+      this.logger.error(
+        `[login ${platform}/${accountId}] 登录超时，已检查 ${checkCount} 次`,
+      );
+      throw new Error(`login timeout after ${profile.loginWaitMs}ms (checked ${checkCount} times)`);
     } finally {
       await release();
     }
