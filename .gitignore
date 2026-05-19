@@ -1,6 +1,7 @@
 node_modules
 dist
 coverage
+assets
 .env
 .env.local
 .npm-cache
