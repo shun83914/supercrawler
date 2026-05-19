@@ -22,11 +22,32 @@
 **OpenClaw 容器启动时必须挂载 Docker Socket，否则无法跨容器调用 MCP！**
 
 ```bash
-# OpenClaw 容器启动示例
+# OpenClaw 容器启动示例（以 macOS 为例）
 docker run -d --name openclaw \
   -v ~/.openclaw:/root/.openclaw \
-  -v ~/.docker/run/docker.sock:/var/run/docker.sock \  # ← 必须挂载！(macOS)
+  -v ~/.docker/run/docker.sock:/var/run/docker.sock \  # ← 必须挂载！
   ghcr.io/openclaw/openclaw:latest
+```
+
+**不同操作系统的 Docker Socket 挂载方式：**
+
+**macOS (Docker Desktop):**
+```bash
+-v ~/.docker/run/docker.sock:/var/run/docker.sock
+```
+
+**Linux:**
+```bash
+-v /var/run/docker.sock:/var/run/docker.sock
+```
+
+**Windows (Docker Desktop):**
+```bash
+# Windows 使用命名管道（Named Pipe）
+-v //var/run/docker.sock:/var/run/docker.sock
+# 或者
+-v /var/run/docker.sock:/var/run/docker.sock
+```
 ```
 
 **为什么需要 Docker Socket？**
@@ -37,6 +58,7 @@ docker run -d --name openclaw \
 **Docker Socket 路径说明：**
 - **macOS (Docker Desktop)**: `~/.docker/run/docker.sock`
 - **Linux**: `/var/run/docker.sock`
+- **Windows (Docker Desktop)**: `//var/run/docker.sock` (命名管道)
 - **容器内统一使用**: `/var/run/docker.sock`
 
 ---
@@ -109,6 +131,7 @@ SuperCrawler 容器 (运行 MCP stdio server)
 - OpenClaw 容器必须挂载 Docker Socket：
   - **macOS**: `-v ~/.docker/run/docker.sock:/var/run/docker.sock`
   - **Linux**: `-v /var/run/docker.sock:/var/run/docker.sock`
+  - **Windows**: `-v //var/run/docker.sock:/var/run/docker.sock`
 - MCP 配置使用 `docker exec` 命令跨容器调用
 - 无需网络直连，通过 Docker Daemon 中转
 
@@ -128,23 +151,25 @@ else
 fi
 
 # 检查 Docker Socket 是否可用（跨容器调用必须）
-# macOS 和 Linux 路径不同，需要检查两个位置
+# macOS、Linux 和 Windows 路径不同，需要检查多个位置
 DOCKER_SOCKET=""
 if [ -S /var/run/docker.sock ]; then
   DOCKER_SOCKET="/var/run/docker.sock"
 elif [ -S ~/.docker/run/docker.sock ]; then
   DOCKER_SOCKET="$HOME/.docker/run/docker.sock"
+elif [ -S /run/docker.sock ]; then
+  DOCKER_SOCKET="/run/docker.sock"
 fi
 
 if [ -n "$DOCKER_SOCKET" ]; then
   echo "✅ Docker Socket 可用: $DOCKER_SOCKET"
   echo "✅ 支持跨容器调用"
 else
-  echo "❌ Docker Socket 不可用！"
+  echo "⚠️  Docker Socket 未检测到，但可能在 Windows 上正常运行"
   echo "请确保 OpenClaw 容器启动时挂载了 Docker Socket："
-  echo "  macOS: docker run -v ~/.docker/run/docker.sock:/var/run/docker.sock ..."
-  echo "  Linux: docker run -v /var/run/docker.sock:/var/run/docker.sock ..."
-  exit 1
+  echo "  macOS:   docker run -v ~/.docker/run/docker.sock:/var/run/docker.sock ..."
+  echo "  Linux:   docker run -v /var/run/docker.sock:/var/run/docker.sock ..."
+  echo "  Windows: docker run -v //var/run/docker.sock:/var/run/docker.sock ..."
 fi
 
 cat > ~/.openclaw/mcp.json << 'EOF'
