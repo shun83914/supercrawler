@@ -10,10 +10,34 @@
 这是一个全新环境，请按以下 5 个阶段执行：
 
 阶段 1: Docker 部署容器
-阶段 2: 配置 MCP 通信
+阶段 2: 配置 MCP 通信（跨容器调用）
 阶段 3: 安装 Skills
 阶段 4: 扫码登录（小红书 + 抖音）
 阶段 5: 使用 MCP Tools 抓取数据
+
+---
+
+# ⚠️ 前置要求：OpenClaw 容器配置
+
+**OpenClaw 容器启动时必须挂载 Docker Socket，否则无法跨容器调用 MCP！**
+
+```bash
+# OpenClaw 容器启动示例
+docker run -d --name openclaw \
+  -v ~/.openclaw:/root/.openclaw \
+  -v ~/.docker/run/docker.sock:/var/run/docker.sock \  # ← 必须挂载！(macOS)
+  ghcr.io/openclaw/openclaw:latest
+```
+
+**为什么需要 Docker Socket？**
+- MCP 工具运行在 SuperCrawler 容器内
+- OpenClaw 需要通过 `docker exec` 跨容器调用
+- 挂载 Docker Socket 后，OpenClaw 可以控制其他容器
+
+**Docker Socket 路径说明：**
+- **macOS (Docker Desktop)**: `~/.docker/run/docker.sock`
+- **Linux**: `/var/run/docker.sock`
+- **容器内统一使用**: `/var/run/docker.sock`
 
 ---
 
@@ -68,12 +92,60 @@ echo "✅ Token 已保存到 ~/supercrawler/api-token.txt"
 
 # 阶段 2：配置 MCP
 
+## ⚠️ 重要说明：跨容器调用
+
+**MCP 工具运行在 SuperCrawler 容器内，OpenClaw 需要通过 Docker 跨容器调用！**
+
+**工作原理：**
+```
+OpenClaw 容器
+    ↓ (通过 Docker Socket)
+Docker Daemon
+    ↓ (docker exec)
+SuperCrawler 容器 (运行 MCP stdio server)
+```
+
+**关键配置：**
+- OpenClaw 容器必须挂载 Docker Socket：
+  - **macOS**: `-v ~/.docker/run/docker.sock:/var/run/docker.sock`
+  - **Linux**: `-v /var/run/docker.sock:/var/run/docker.sock`
+- MCP 配置使用 `docker exec` 命令跨容器调用
+- 无需网络直连，通过 Docker Daemon 中转
+
+---
+
 ## Step 2: 创建 MCP 配置
 
 创建文件 `~/.openclaw/mcp.json`：
 
 ```bash
-mkdir -p ~/.openclaw
+# 检查 OpenClaw 配置目录是否存在，不存在再创建
+if [ ! -d ~/.openclaw ]; then
+  mkdir -p ~/.openclaw
+  echo "✅ 已创建 ~/.openclaw 目录"
+else
+  echo "✅ ~/.openclaw 目录已存在"
+fi
+
+# 检查 Docker Socket 是否可用（跨容器调用必须）
+# macOS 和 Linux 路径不同，需要检查两个位置
+DOCKER_SOCKET=""
+if [ -S /var/run/docker.sock ]; then
+  DOCKER_SOCKET="/var/run/docker.sock"
+elif [ -S ~/.docker/run/docker.sock ]; then
+  DOCKER_SOCKET="$HOME/.docker/run/docker.sock"
+fi
+
+if [ -n "$DOCKER_SOCKET" ]; then
+  echo "✅ Docker Socket 可用: $DOCKER_SOCKET"
+  echo "✅ 支持跨容器调用"
+else
+  echo "❌ Docker Socket 不可用！"
+  echo "请确保 OpenClaw 容器启动时挂载了 Docker Socket："
+  echo "  macOS: docker run -v ~/.docker/run/docker.sock:/var/run/docker.sock ..."
+  echo "  Linux: docker run -v /var/run/docker.sock:/var/run/docker.sock ..."
+  exit 1
+fi
 
 cat > ~/.openclaw/mcp.json << 'EOF'
 {
@@ -233,7 +305,15 @@ docker restart supercrawler
 
 ## 更新镜像
 ```bash
-docker pull ghcr.io/shun83914/supercrawler:latest-debian-arm64
+# 根据当前架构选择对应镜像
+ARCH=$(uname -m)
+if [ "$ARCH" = "arm64" ]; then
+  IMAGE="ghcr.io/shun83914/supercrawler:latest-debian-arm64"
+else
+  IMAGE="ghcr.io/shun83914/supercrawler:latest-debian-amd64"
+fi
+
+docker pull $IMAGE
 docker stop supercrawler && docker rm supercrawler
 # 然后重新执行 Step 1 的 docker run 命令
 ```
