@@ -212,8 +212,18 @@ export class AuthService {
         
         // 检查是否有 session cookie
         if (await this.hasSessionCookie(context, profile)) {
+          const cookies = await context.cookies([profile.home]);
+          const loginCookies = cookies.filter((c: Cookie) => 
+            profile.cookieKeys.includes(c.name)
+          );
+          
           this.logger.log(
             `[login ${platform}/${accountId}] 检测到登录 Cookie (检查 ${checkCount} 次)`,
+          );
+          this.logger.log(
+            `[login ${platform}/${accountId}] 登录 Cookie 详情: ${JSON.stringify(
+              loginCookies.map(c => ({ name: c.name, domain: c.domain, expires: c.expires }))
+            )}`,
           );
           
           const status = await this.probeStatus(accountId, platform, context);

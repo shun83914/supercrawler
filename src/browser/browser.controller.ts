@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 @ApiTags('browser')
-@Controller('api/browser')
+@Controller('browser')
 export class BrowserController {
   @Get('status')
   @ApiOperation({

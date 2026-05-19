@@ -156,6 +156,9 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
     this.logger.log(
       `launching persistent context accountId=${accountId} headless=${headless} humanize=${humanize} proxy=${proxy ?? 'none'}`,
     );
+    this.logger.log(
+      `[DEBUG] userDataDir=${userDataDir} (profile storage path)`,
+    );
 
     const { launchPersistentContext } = await loadCloak();
     const context = await launchPersistentContext({
