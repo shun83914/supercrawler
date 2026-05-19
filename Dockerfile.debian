@@ -13,7 +13,7 @@ ENV NODE_ENV=production \
     PROFILE_DIR=/data/profiles \
     OUTPUT_DIR=/data/output \
     CLOAK_HEADLESS=true \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+    CLOAK_BROWSER_PATH=/root/.cloakbrowser
 
 # 安装 Chromium 和 Playwright 依赖（添加重试机制）
 # 添加 Xvfb 虚拟显示器支持（用于 Headed 模式扫码登录）

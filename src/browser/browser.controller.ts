@@ -17,40 +17,47 @@ export class BrowserController {
     ready: boolean;
     downloading: boolean;
     path?: string;
+    chromePath?: string;
     size?: string;
     message: string;
   }> {
     try {
-      const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
-      const pattern = path.join(browsersPath, 'chromium-*');
+      // CloakBrowser 实际存储路径（通过环境变量配置）
+      const cloakBrowserPath = process.env.CLOAK_BROWSER_PATH || '/root/.cloakbrowser';
       
       // 查找 chromium 目录
-      const dirs = fs.readdirSync(path.dirname(pattern)).filter((d) => 
-        d.startsWith('chromium-')
-      );
+      let chromiumDirs: string[] = [];
+      
+      try {
+        const dirs = fs.readdirSync(cloakBrowserPath);
+        chromiumDirs = dirs.filter(d => d.startsWith('chromium-'));
+      } catch {
+        // 目录不存在
+      }
 
-      if (dirs.length > 0) {
-        const chromiumDir = path.join(browsersPath, dirs[0]);
+      if (chromiumDirs.length > 0) {
+        const chromiumDir = path.join(cloakBrowserPath, chromiumDirs[0]);
         const stats = fs.statSync(chromiumDir);
         
-        // 检查是否包含可执行文件
-        const chromePath = path.join(chromiumDir, 'chrome-linux', 'chrome');
+        // CloakBrowser 的可执行文件路径（直接在根目录）
+        const chromePath = path.join(chromiumDir, 'chrome');
         const exists = fs.existsSync(chromePath);
 
         return {
           ready: exists,
           downloading: false,
           path: chromiumDir,
+          chromePath: exists ? chromePath : undefined,
           size: this.formatSize(stats.size),
           message: exists 
-            ? 'Chromium 浏览器已就绪' 
+            ? `Chromium 浏览器已就绪 (${chromiumDirs[0]})`
             : 'Chromium 目录存在但缺少可执行文件，可能正在下载或下载失败',
         };
       } else {
         return {
           ready: false,
           downloading: false,
-          message: 'Chromium 浏览器未下载，将在首次启动时自动下载',
+          message: `Chromium 浏览器未下载，将在首次启动时自动下载（路径: ${cloakBrowserPath}）`,
         };
       }
     } catch (error) {

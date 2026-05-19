@@ -70,6 +70,9 @@ export class AuthService {
   ): Promise<LoginStatus> {
     const profile = this.profile(platform);
     
+    // 关键优化 0: 检查浏览器是否已下载并就绪
+    await this.ensureBrowserReady();
+    
     // 关键修复 1: 先关闭已存在的浏览器 Context
     // 防止内存中残留旧的登录态
     if (this.browser.hasContext(accountId)) {
@@ -248,6 +251,87 @@ export class AuthService {
     } finally {
       await release();
     }
+  }
+
+  /**
+   * 确保浏览器已下载并就绪
+   * 如果浏览器未下载，会等待并提示用户
+   */
+  private async ensureBrowserReady(): Promise<void> {
+    // CloakBrowser 实际存储路径（通过环境变量配置）
+    const cloakBrowserPath = process.env.CLOAK_BROWSER_PATH || '/root/.cloakbrowser';
+    
+    this.logger.log('🌐 检查 Chromium 浏览器状态...');
+    
+    // 最多等待 10 分钟（600 秒）
+    const maxWaitTime = 10 * 60 * 1000;
+    const checkInterval = 5000; // 每 5 秒检查一次
+    const startTime = Date.now();
+    let firstCheck = true;
+    
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        // 检查 chromium 目录
+        let chromiumDirs: string[] = [];
+        
+        try {
+          const dirs = await fs.promises.readdir(cloakBrowserPath);
+          chromiumDirs = dirs.filter(d => d.startsWith('chromium-'));
+        } catch {
+          // 目录不存在
+        }
+        
+        if (chromiumDirs.length > 0) {
+          // 检查是否包含可执行文件
+          const chromiumDir = path.join(cloakBrowserPath, chromiumDirs[0]);
+          const chromePath = path.join(chromiumDir, 'chrome');
+          
+          const exists = await fs.promises.access(chromePath).then(() => true).catch(() => false);
+          
+          if (exists) {
+            this.logger.log(`✅ Chromium 浏览器已就绪 (${chromiumDirs[0]})`);
+            return;
+          }
+        }
+        
+        // 浏览器未就绪
+        if (firstCheck) {
+          this.logger.warn(
+            '⚠️  Chromium 浏览器未下载，正在自动下载...',
+          );
+          this.logger.warn(
+            '📦 预计大小: ~200MB | ⏱️  预计时间: 2-5 分钟（取决于网络速度）',
+          );
+          this.logger.warn(
+            '💡 提示: 下载期间请勿关闭容器，下载完成后会自动继续登录流程',
+          );
+          this.logger.warn(
+            `📂 下载路径: ${cloakBrowserPath}`,
+          );
+          firstCheck = false;
+        } else {
+          const elapsed = Math.round((Date.now() - startTime) / 1000);
+          this.logger.log(
+            `⏳ 浏览器下载中... 已等待 ${elapsed} 秒`,
+          );
+        }
+        
+        // 等待一段时间后再次检查
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      } catch (err) {
+        this.logger.warn(
+          `检查浏览器状态失败: ${(err as Error).message}`,
+        );
+        await new Promise(resolve => setTimeout(resolve, checkInterval));
+      }
+    }
+    
+    // 超时
+    throw new Error(
+      'Chromium 浏览器下载超时（10 分钟）。请检查网络连接或手动下载浏览器。' +
+      `\n下载路径: ${cloakBrowserPath}` +
+      '\n提示: 可以通过 GET /api/browser/status 检查浏览器状态',
+    );
   }
 
   /**
