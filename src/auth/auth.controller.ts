@@ -185,40 +185,22 @@ export class AuthController {
         };
       }
 
-      // 3. 检查 Chromium 浏览器是否已下载
-      // CloakBrowser 实际路径（支持环境变量配置）
-      const browsersPath = process.env.CLOAK_BROWSER_PATH || '/root/.cloakbrowser';
+      // 3. 检查 Chromium 浏览器是否已下载（使用 CloakBrowser 官方 API）
+      const cloak = await (async () => {
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        return (await new Function('return import("cloakbrowser")')()) as typeof import('cloakbrowser');
+      })();
       
-      try {
-        const dirs = fs.readdirSync(browsersPath).filter((d) => 
-          d.startsWith('chromium-')
-        );
-        
-        if (dirs.length === 0) {
-          return {
-            success: false,
-            error: 'Chromium 浏览器未找到。请检查 Docker 镜像是否预装了浏览器。\n提示: GET /api/browser/status',
-          };
-        }
-
-        const chromiumDir = path.join(browsersPath, dirs[0]);
-        // CloakBrowser 的可执行文件直接在根目录
-        const chromePath = path.join(chromiumDir, 'chrome');
-        
-        if (!fs.existsSync(chromePath)) {
-          return {
-            success: false,
-            error: 'Chromium 浏览器目录存在但缺少可执行文件。请检查浏览器完整性。',
-          };
-        }
-      } catch (err) {
+      const info = await cloak.binaryInfo();
+      
+      if (!info.installed) {
         return {
           success: false,
-          error: `Chromium 浏览器未找到: ${err.message}。请等待浏览器下载完成。`,
+          error: 'Chromium 浏览器未下载。请先触发登录：POST /api/auth/login，然后等待浏览器下载完成。',
         };
       }
 
-      // 4. 检查是否有 Chromium 进程在运行（关键！）
+      // 检查是否有 Chromium 进程在运行（关键！）
       try {
         const { stdout } = await execAsync('ps aux | grep -E "chrome|chromium" | grep -v grep | wc -l');
         const processCount = parseInt(stdout.trim(), 10);

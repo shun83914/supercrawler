@@ -1,7 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 @ApiTags('browser')
 @Controller('browser')
@@ -10,8 +8,7 @@ export class BrowserController {
   @ApiOperation({
     summary: '检查浏览器就绪状态',
     description:
-      '检查 Chromium 浏览器是否已下载并就绪。首次启动时需要下载浏览器，' +
-      '下载完成前无法执行登录流程。',
+      '检查 Chromium 浏览器是否已下载并就绪。使用 CloakBrowser 官方 API 进行检查。',
   })
   async getBrowserStatus(): Promise<{
     ready: boolean;
@@ -22,44 +19,25 @@ export class BrowserController {
     message: string;
   }> {
     try {
-      // CloakBrowser 实际存储路径（通过环境变量配置）
-      const cloakBrowserPath = process.env.CLOAK_BROWSER_PATH || '/root/.cloakbrowser';
-      
-      // 查找 chromium 目录
-      let chromiumDirs: string[] = [];
-      
-      try {
-        const dirs = fs.readdirSync(cloakBrowserPath);
-        chromiumDirs = dirs.filter(d => d.startsWith('chromium-'));
-      } catch {
-        // 目录不存在
-      }
+      // 动态加载 CloakBrowser
+      const cloak = await (async () => {
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        return (await new Function('return import("cloakbrowser")')()) as typeof import('cloakbrowser');
+      })();
 
-      if (chromiumDirs.length > 0) {
-        const chromiumDir = path.join(cloakBrowserPath, chromiumDirs[0]);
-        const stats = fs.statSync(chromiumDir);
-        
-        // CloakBrowser 的可执行文件路径（直接在根目录）
-        const chromePath = path.join(chromiumDir, 'chrome');
-        const exists = fs.existsSync(chromePath);
+      // 使用 CloakBrowser 官方 API
+      const info = await cloak.binaryInfo();
 
-        return {
-          ready: exists,
-          downloading: false,
-          path: chromiumDir,
-          chromePath: exists ? chromePath : undefined,
-          size: this.formatSize(stats.size),
-          message: exists 
-            ? `Chromium 浏览器已就绪 (${chromiumDirs[0]})`
-            : 'Chromium 目录存在但缺少可执行文件，可能正在下载或下载失败',
-        };
-      } else {
-        return {
-          ready: false,
-          downloading: false,
-          message: `Chromium 浏览器未下载，将在首次启动时自动下载（路径: ${cloakBrowserPath}）`,
-        };
-      }
+      return {
+        ready: info.installed,
+        downloading: false,
+        path: info.cacheDir,
+        chromePath: info.binaryPath,
+        size: 'N/A',
+        message: info.installed
+          ? `Chromium 浏览器已就绪 (v${info.version}, ${info.platform})`
+          : 'Chromium 浏览器未安装，将在首次使用时自动下载',
+      };
     } catch (error) {
       return {
         ready: false,

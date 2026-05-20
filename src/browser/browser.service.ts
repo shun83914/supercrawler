@@ -164,9 +164,10 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
     const proxy = override.proxy ?? cloak?.proxy;
     const timezone = override.timezone ?? cloak?.timezone ?? 'Asia/Shanghai';
     const locale = override.locale ?? cloak?.locale ?? 'zh-CN';
+    const antiDetection = override.antiDetection ?? true; // 默认启用反爬增强
 
     this.logger.log(
-      `launching persistent context contextKey=${contextKey} accountId=${accountId} platform=${platform || 'none'} headless=${headless} humanize=${humanize} proxy=${proxy ?? 'none'}`,
+      `launching persistent context contextKey=${contextKey} accountId=${accountId} platform=${platform || 'none'} headless=${headless} humanize=${humanize} antiDetection=${antiDetection} proxy=${proxy ?? 'none'}`,
     );
     this.logger.log(
       `[DEBUG] userDataDir=${userDataDir} (profile storage path)`,
@@ -182,6 +183,8 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
       ...(proxy ? { proxy } : {}),
       viewport: { width: 1440, height: 900 },
     });
+
+    this.logger.log('CloakBrowser context launched with humanize=true (built-in anti-detection enabled)');
 
     context.on('close', () => {
       this.contexts.delete(contextKey);

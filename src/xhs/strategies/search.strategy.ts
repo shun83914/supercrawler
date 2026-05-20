@@ -96,7 +96,29 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForLoadState('networkidle').catch(() => undefined);
-      await randomSleep(1500, 2500); // 增加等待时间，让页面充分加载
+      await randomSleep(1500, 2500);
+
+      // 检测是否需要登录（检查二维码弹窗或页面重定向）
+      const needsLogin = await page.evaluate(() => {
+        const qrElements = document.querySelectorAll(
+          '[class*="qr-code"], [class*="QRCode"], [class*="login"], [class*="Login"]'
+        );
+        for (const el of qrElements) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 200 && rect.height > 200) {
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+
+      const currentUrlCheck = page.url();
+      const redirectedToExplore = currentUrlCheck.includes('/explore') && !currentUrlCheck.includes('search_result');
+
+      if (needsLogin || redirectedToExplore) {
+        // 抛出特殊异常，让上层服务处理登录流程
+        throw new Error('LOGIN_REQUIRED: 检测到二维码登录弹窗，需要先完成登录。请调用 POST /api/auth/login 进行扫码登录，然后重试。');
+      }
 
       // 调试：检查页面状态
       const pageTitle = await page.title();
