@@ -39,6 +39,16 @@ export interface SearchResultItem {
   rank: number;
   fetchedAt: string;
   source: 'xhs';
+  /** 笔记详情数据（通过点击卡片获取）。 */
+  detail?: {
+    content?: string;
+    description?: string;
+    collectedCount?: number;
+    commentCount?: number;
+    shareCount?: number;
+    ipLocation?: string;
+    tags?: string[];
+  };
 }
 
 const SORT_MAP: Record<SearchSort, string> = {
@@ -185,7 +195,8 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
         const prev = collected.size;
         for (const b of batch) {
           if (!b.noteId || collected.has(b.noteId)) continue;
-          collected.set(b.noteId, {
+          
+          const item: SearchResultItem = {
             noteId: b.noteId,
             title: b.title,
             cover: b.cover,
@@ -196,7 +207,23 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
             rank: collected.size + 1,
             fetchedAt: new Date().toISOString(),
             source: 'xhs',
-          });
+          };
+          
+          // 关键改进：点击笔记卡片获取详情数据
+          this.logger.log(`[search:${input.keyword}] 📝 点击笔记 ${b.noteId} 获取详情...`);
+          try {
+            const detail = await this.clickAndFetchDetail(page, b.noteId);
+            if (detail) {
+              item.detail = detail;
+              this.logger.log(`[search:${input.keyword}] ✅ 笔记 ${b.noteId} 详情获取成功: title=${detail.content ? '✅' : '❌'}`);
+            } else {
+              this.logger.warn(`[search:${input.keyword}] ⚠️ 笔记 ${b.noteId} 详情获取失败`);
+            }
+          } catch (err) {
+            this.logger.warn(`[search:${input.keyword}] ❌ 笔记 ${b.noteId} 点击失败: ${(err as Error).message}`);
+          }
+          
+          collected.set(b.noteId, item);
           if (collected.size >= fetchLimit) break;
         }
         if (collected.size === prev) {
@@ -254,6 +281,139 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
     } finally {
       page.off('response', onResponse);
     }
+  }
+
+  /**
+   * 点击笔记卡片并获取详情数据
+   * 模拟人类点击行为，等待详情页加载后提取数据
+   */
+  private async clickAndFetchDetail(page: Page, noteId: string): Promise<SearchResultItem['detail'] | null> {
+    try {
+      // 查找笔记卡片并点击
+      const cardSelectors = [
+        `a[href*="${noteId}"]`,
+        `section.note-item a[href*="${noteId}"]`,
+        `[data-note-id="${noteId}"]`,
+      ];
+
+      let clicked = false;
+      for (const selector of cardSelectors) {
+        try {
+          const card = await page.$(selector);
+          if (card) {
+            // 模拟人类鼠标移动
+            const box = await card.boundingBox();
+            if (box) {
+              await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+              await randomSleep(300, 600);
+            }
+            
+            // 点击卡片
+            await card.click();
+            clicked = true;
+            break;
+          }
+        } catch {
+          // 尝试下一个选择器
+        }
+      }
+
+      if (!clicked) {
+        return null;
+      }
+
+      // 等待详情页加载
+      await page.waitForLoadState('networkidle').catch(() => undefined);
+      await randomSleep(2000, 3000);
+
+      // 检测登录状态
+      const needsLogin = await page.evaluate(() => {
+        const qrElements = document.querySelectorAll(
+          '[class*="qr-code"], [class*="QRCode"], [class*="qrcode"]'
+        );
+        for (const el of qrElements) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 150 && rect.height > 150) {
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+
+      if (needsLogin) {
+        this.logger.warn(`[${noteId}] ⚠️ 检测到登录弹窗，等待用户扫码...`);
+        // 等待登录完成（最长120秒）
+        await this.waitForLoginComplete(page, noteId);
+      }
+
+      // 模拟人类滚动阅读
+      await scrollPage(page, { steps: 2, stepDelayMs: [800, 1500] });
+      await randomSleep(1000, 2000);
+
+      // 提取详情数据
+      const detail = await page.evaluate(() => {
+        const q = (sel: string) => document.querySelector(sel)?.textContent?.trim() || undefined;
+        const qa = (sel: string) => Array.from(document.querySelectorAll(sel)).map(el => el.textContent?.trim()).filter(Boolean).join('\n');
+        
+        return {
+          content: q('#detail-desc') ?? q('.note-content .desc') ?? q('.content') ?? qa('.note-content p'),
+          description: q('.description') ?? q('.desc'),
+          ipLocation: q('.ip-location') ?? q('.location'),
+        };
+      });
+
+      // 返回上一页
+      await page.goBack({ waitUntil: 'networkidle' }).catch(() => undefined);
+      await randomSleep(1000, 2000);
+
+      return detail;
+    } catch (err) {
+      this.logger.warn(`[${noteId}] 点击获取详情失败: ${(err as Error).message}`);
+      // 确保返回搜索页
+      await page.goBack({ waitUntil: 'networkidle' }).catch(() => undefined);
+      return null;
+    }
+  }
+
+  /**
+   * 等待用户扫码登录完成
+   */
+  private async waitForLoginComplete(page: Page, noteId: string, timeoutMs = 120000): Promise<void> {
+    const startTime = Date.now();
+    const checkInterval = 3000;
+    let checkCount = 0;
+
+    while (Date.now() - startTime < timeoutMs) {
+      checkCount++;
+      await page.waitForTimeout(checkInterval);
+      
+      const stillNeedLogin = await page.evaluate(() => {
+        const qrElements = document.querySelectorAll(
+          '[class*="qr-code"], [class*="QRCode"], [class*="qrcode"]'
+        );
+        for (const el of qrElements) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 150 && rect.height > 150) {
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+
+      if (!stillNeedLogin) {
+        this.logger.log(`[${noteId}] ✅ 登录成功（检查 ${checkCount} 次）`);
+        await page.waitForLoadState('networkidle').catch(() => undefined);
+        await randomSleep(2000, 3000);
+        return;
+      }
+
+      if (checkCount % 10 === 0) {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        this.logger.log(`[${noteId}] ⏳ 等待中... 已等待 ${elapsed} 秒`);
+      }
+    }
+
+    throw new Error(`[${noteId}] 登录超时`);
   }
 }
 
