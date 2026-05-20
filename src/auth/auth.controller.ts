@@ -186,7 +186,8 @@ export class AuthController {
       }
 
       // 3. 检查 Chromium 浏览器是否已下载
-      const browsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
+      // CloakBrowser 实际路径（支持环境变量配置）
+      const browsersPath = process.env.CLOAK_BROWSER_PATH || '/root/.cloakbrowser';
       
       try {
         const dirs = fs.readdirSync(browsersPath).filter((d) => 
@@ -196,17 +197,18 @@ export class AuthController {
         if (dirs.length === 0) {
           return {
             success: false,
-            error: 'Chromium 浏览器未下载。请等待浏览器下载完成后再截图（首次启动约需 2-5 分钟）。\n提示: GET /api/browser/status',
+            error: 'Chromium 浏览器未找到。请检查 Docker 镜像是否预装了浏览器。\n提示: GET /api/browser/status',
           };
         }
 
         const chromiumDir = path.join(browsersPath, dirs[0]);
-        const chromePath = path.join(chromiumDir, 'chrome-linux', 'chrome');
+        // CloakBrowser 的可执行文件直接在根目录
+        const chromePath = path.join(chromiumDir, 'chrome');
         
         if (!fs.existsSync(chromePath)) {
           return {
             success: false,
-            error: 'Chromium 浏览器正在下载或下载失败。请检查浏览器状态：GET /api/browser/status',
+            error: 'Chromium 浏览器目录存在但缺少可执行文件。请检查浏览器完整性。',
           };
         }
       } catch (err) {

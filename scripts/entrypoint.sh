@@ -17,7 +17,8 @@ fi
 echo ""
 
 # 检查并预下载 Chromium 浏览器
-BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-browsers}"
+# CloakBrowser 实际路径（支持环境变量配置）
+BROWSERS_PATH="${CLOAK_BROWSER_PATH:-/root/.cloakbrowser}"
 CHROMIUM_DIR="$BROWSERS_PATH/chromium-*"
 
 echo "🌐 检查 Chromium 浏览器..."
@@ -25,10 +26,9 @@ if ls $CHROMIUM_DIR 1> /dev/null 2>&1; then
   echo "✅ Chromium 浏览器已存在"
   ls -lh $CHROMIUM_DIR | head -1
 else
-  echo "⚠️  Chromium 浏览器未找到，将在首次启动时自动下载"
-  echo "   下载路径: $BROWSERS_PATH"
-  echo "   预计大小: ~200MB"
-  echo "   预计时间: 2-5 分钟（取决于网络速度）"
+  echo "⚠️  Chromium 浏览器未找到，请检查镜像是否预装了浏览器"
+  echo "   检查路径: $BROWSERS_PATH"
+  echo "   提示: Docker 镜像已预装浏览器，不应出现此提示"
 fi
 echo ""
 

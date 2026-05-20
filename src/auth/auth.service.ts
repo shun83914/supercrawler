@@ -94,6 +94,7 @@ export class AuthService {
     
     const lease = await this.pages.acquire(accountId, {
       headless: false,
+      platform, // 关键修复：传入 platform 实现平台隔离
       ...(proxy ? { proxy } : {}),
     });
     const { page, context, release } = lease;
@@ -668,7 +669,10 @@ export class AuthService {
     }
 
     // 5. 实际探测（启动浏览器）
-    const lease = await this.pages.acquire(accountId, { headless: true });
+    const lease = await this.pages.acquire(accountId, { 
+      headless: true,
+      platform, // 关键修复：传入 platform 实现平台隔离
+    });
     try {
       const status = await this.probeStatus(accountId, platform, lease.context);
 

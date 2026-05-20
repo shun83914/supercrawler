@@ -59,26 +59,33 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
   /**
    * 获取（或惰性创建）指定账号的持久化 context。
    * 多次请求同 accountId 复用同一 context。
+   * 
+   * 支持平台隔离：通过 override.platform 参数区分不同平台
    */
   async acquireContext(
     accountId = 'default',
     override: LaunchOverride = {},
   ): Promise<BrowserContext> {
-    const existing = this.contexts.get(accountId);
+    // 使用 platform 作为 context key 的一部分，实现平台隔离
+    const contextKey = override.platform 
+      ? `${accountId}-${override.platform}` 
+      : accountId;
+    
+    const existing = this.contexts.get(contextKey);
     if (existing) {
       existing.activePages += 1;
       return existing.context;
     }
-    const pending = this.locks.get(accountId);
+    const pending = this.locks.get(contextKey);
     if (pending) {
       const entry = await pending;
       entry.activePages += 1;
       return entry.context;
     }
-    const task = this.createContext(accountId, override).finally(() => {
-      this.locks.delete(accountId);
+    const task = this.createContext(accountId, override, contextKey).finally(() => {
+      this.locks.delete(contextKey);
     });
-    this.locks.set(accountId, task);
+    this.locks.set(contextKey, task);
     const entry = await task;
     entry.activePages += 1;
     return entry.context;
@@ -138,9 +145,14 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
   private async createContext(
     accountId: string,
     override: LaunchOverride,
+    contextKey: string, // 新增：context 的唯一键
   ): Promise<ContextEntry> {
     const cloak = this.config.get<AppConfig['cloak']>('cloak');
-    const userDataDir = this.profileDirOf(accountId);
+    // 使用 platform 隔离 userDataDir，避免不同平台的登录态冲突
+    const platform = override.platform;
+    const userDataDir = platform 
+      ? this.profileDirOf(`${accountId}_${platform}`)
+      : this.profileDirOf(accountId);
     await fs.promises.mkdir(userDataDir, { recursive: true });
 
     // 关键修复：在创建 context 前清理残留的锁文件
@@ -154,7 +166,7 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
     const locale = override.locale ?? cloak?.locale ?? 'zh-CN';
 
     this.logger.log(
-      `launching persistent context accountId=${accountId} headless=${headless} humanize=${humanize} proxy=${proxy ?? 'none'}`,
+      `launching persistent context contextKey=${contextKey} accountId=${accountId} platform=${platform || 'none'} headless=${headless} humanize=${humanize} proxy=${proxy ?? 'none'}`,
     );
     this.logger.log(
       `[DEBUG] userDataDir=${userDataDir} (profile storage path)`,
@@ -172,12 +184,12 @@ export class BrowserService implements OnModuleInit, OnApplicationShutdown {
     });
 
     context.on('close', () => {
-      this.contexts.delete(accountId);
-      this.logger.warn(`context closed (external): ${accountId}`);
+      this.contexts.delete(contextKey);
+      this.logger.warn(`context closed (external): ${contextKey}`);
     });
 
     const entry: ContextEntry = {
-      accountId,
+      accountId: contextKey,
       userDataDir,
       context,
       activePages: 0,

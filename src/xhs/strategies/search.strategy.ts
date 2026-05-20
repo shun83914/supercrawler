@@ -64,14 +64,24 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
 
     // 拦截搜索 API 响应，按 noteId 索引 raw payload，后续补 publishTime/likedCount/noteType。
     const rawByNoteId = new Map<string, AnyObj>();
+    let apiCallCount = 0;
     const onResponse = (resp: Response): void => {
       const u = resp.url();
-      if (!SEARCH_API_PATTERN.test(u)) return;
+      // 调试：记录所有 JSON 响应
       const ct = resp.headers()['content-type'] ?? '';
+      if (ct.includes('json')) {
+        this.logger.log(`[search:${input.keyword}] API response: ${u.substring(0, 100)}`);
+        apiCallCount++;
+      }
+      
+      if (!SEARCH_API_PATTERN.test(u)) return;
       if (!ct.includes('json')) return;
       void resp
         .json()
-        .then((json) => indexNoteRawByNoteId(json, rawByNoteId))
+        .then((json) => {
+          this.logger.log(`[search:${input.keyword}] intercepted search API, keys: ${Object.keys(json).join(', ')}`);
+          indexNoteRawByNoteId(json, rawByNoteId);
+        })
         .catch(() => undefined);
     };
     page.on('response', onResponse);
@@ -178,14 +188,20 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
 
       // 记录搜索结果
       this.logger.log(`[search:${input.keyword}] collected ${collected.size} items after ${maxRounds} rounds`);
+      this.logger.log(`[search:${input.keyword}] total API calls intercepted: ${apiCallCount}`);
+      this.logger.log(`[search:${input.keyword}] raw data entries: ${rawByNoteId.size}`);
       
       // 如果结果为空，提供调试信息
       if (collected.size === 0) {
-        this.logger.warn(`[search:${input.keyword}] no results found. Possible reasons:`);
-        this.logger.warn(`  1. Page structure changed (anti-scraping)`);
-        this.logger.warn(`  2. JavaScript not fully loaded`);
-        this.logger.warn(`  3. Network requests blocked`);
-        this.logger.warn(`  4. Login session expired`);
+        this.logger.warn(`[search:${input.keyword}] no results found. Diagnostic info:`);
+        this.logger.warn(`  - API calls intercepted: ${apiCallCount}`);
+        this.logger.warn(`  - Raw data entries: ${rawByNoteId.size}`);
+        this.logger.warn(`  - Possible reasons:`);
+        this.logger.warn(`    1. Page structure changed (anti-scraping)`);
+        this.logger.warn(`    2. JavaScript not fully loaded`);
+        this.logger.warn(`    3. Network requests blocked or empty response`);
+        this.logger.warn(`    4. Login session expired or account restricted`);
+        this.logger.warn(`    5. Account in cooldown period (new login)`);
         
         // 截图调试
         try {

@@ -4,4 +4,5 @@ export interface LaunchOverride {
   proxy?: string;
   timezone?: string;
   locale?: string;
+  platform?: string; // 用于平台隔离（xhs, douyin, meituan 等）
 }
