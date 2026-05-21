@@ -109,25 +109,11 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
       await randomSleep(1500, 2500);
 
       // 检测是否需要登录（检查二维码弹窗或页面重定向）
-      const needsLogin = await page.evaluate(() => {
-        const qrElements = document.querySelectorAll(
-          '[class*="qr-code"], [class*="QRCode"], [class*="login"], [class*="Login"]'
-        );
-        for (const el of qrElements) {
-          const rect = el.getBoundingClientRect();
-          if (rect.width > 200 && rect.height > 200) {
-            return true;
-          }
-        }
-        return false;
-      }).catch(() => false);
-
-      const currentUrlCheck = page.url();
-      const redirectedToExplore = currentUrlCheck.includes('/explore') && !currentUrlCheck.includes('search_result');
-
-      if (needsLogin || redirectedToExplore) {
-        // 抛出特殊异常，让上层服务处理登录流程
-        throw new Error('LOGIN_REQUIRED: 检测到二维码登录弹窗，需要先完成登录。请调用 POST /api/auth/login 进行扫码登录，然后重试。');
+      const needsLogin = await this.checkLoginStatus(page, input.keyword);
+      if (needsLogin) {
+        this.logger.warn(`[search:${input.keyword}] 🔐 检测到二维码登录弹窗，等待用户扫码...`);
+        await this.waitForLoginComplete(page, input.keyword);
+        this.logger.log(`[search:${input.keyword}] ✅ 登录完成，继续搜索...`);
       }
 
       // 调试：检查页面状态
@@ -372,6 +358,55 @@ export class SearchStrategy implements IScrapeStrategy<SearchInput, SearchResult
       // 确保返回搜索页
       await page.goBack({ waitUntil: 'networkidle' }).catch(() => undefined);
       return null;
+    }
+  }
+
+  /**
+   * 检测登录状态：检查是否出现二维码登录弹窗
+   */
+  private async checkLoginStatus(page: Page, contextId: string): Promise<boolean> {
+    try {
+      const needsLogin = await page.evaluate(() => {
+        // 检测二维码登录弹窗
+        const qrElements = document.querySelectorAll(
+          '[class*="qr-code"], [class*="QRCode"], [class*="qrcode"], [class*="QR"]'
+        );
+        for (const el of qrElements) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 150 && rect.height > 150) {
+            return true;
+          }
+        }
+
+        // 检测登录模态框
+        const loginModals = document.querySelectorAll(
+          '[class*="login-modal"], [class*="LoginModal"], [class*="modal"], [class*="dialog"]'
+        );
+        for (const modal of loginModals) {
+          const text = modal.textContent || '';
+          if ((text.includes('登录') || text.includes('扫码')) && modal.clientHeight > 200) {
+            return true;
+          }
+        }
+
+        // 检测页面是否重定向到登录页
+        if (window.location.href.includes('/login')) {
+          return true;
+        }
+
+        return false;
+      });
+
+      if (needsLogin) {
+        this.logger.warn(`[${contextId}] ⚠️ 检测到二维码登录弹窗`);
+      } else {
+        this.logger.log(`[${contextId}] ✅ 登录状态正常，无弹窗`);
+      }
+
+      return needsLogin;
+    } catch (err) {
+      this.logger.warn(`[${contextId}] 登录状态检测失败: ${(err as Error).message}`);
+      return false;
     }
   }
 
